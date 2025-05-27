@@ -1,0 +1,15 @@
+# Settings to manage and configure a Firebase App Hosting backend.
+# https://firebase.google.com/docs/app-hosting/configure
+
+# Environment variables to set for your App Hosting backend.
+env:
+  - variable: GOOGLE_API_KEY
+    value: "AIzaSyBPAtRMi1-eLzl0VrY7vzizSnMbFKZiW5k" # <-- ERSÄTT MED DIN RIKTIGA NYCKEL!
+  # Du kan lägga till fler variabler här om det behövs, t.ex.:
+  # - variable: ANOTHER_SECRET
+  #   value: "your_other_secret_value"
+
+runConfig:
+  # Increase this value if you'd like to automatically spin up
+  # more instances in response to increased traffic.
+  maxInstances: 1
