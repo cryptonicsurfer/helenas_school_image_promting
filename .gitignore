@@ -45,3 +45,9 @@ next-env.d.ts
 # firebase
 firebase-debug.log
 firestore-debug.log
+
+# Database files
+*.sqlite
+*.db
+/data
+/public/images

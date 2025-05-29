@@ -16,7 +16,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Prompt Enhance',
+  title: 'Plan Falkenbergs Framtid',
   description: 'Enhance prompts and generate images with AI.',
 };
 

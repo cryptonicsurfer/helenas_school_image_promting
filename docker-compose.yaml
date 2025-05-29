@@ -1,0 +1,18 @@
+
+---
+
+# docker-compose.yml
+version: '3.8'
+services:
+  prompt-enhance:
+    build: .
+    ports:
+      - "9002:3000"
+    volumes:
+      - ./data:/app/data
+      - ./public/images:/app/public/images
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: unless-stopped
+

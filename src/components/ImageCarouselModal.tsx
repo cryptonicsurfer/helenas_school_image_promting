@@ -1,16 +1,15 @@
-
 "use client";
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Image from 'next/image';
-import { Dialog, DialogContent, DialogClose, DialogHeader, DialogTitle } from '@/components/ui/dialog'; // Added DialogHeader, DialogTitle
+import { Dialog, DialogContent, DialogClose, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { ThumbsUp, ThumbsDown, ChevronLeft, ChevronRight, UserCircle, X } from 'lucide-react';
-import type { ImageEntry } from '@/services/firestoreService';
-import { rateImage } from '@/services/firestoreService';
+import type { ImageEntry } from '@/services/imageService'; // ✅ Ändrat från supabaseService
 import { useToast } from '@/hooks/use-toast';
 import { formatDistanceToNow } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext'; // ✅ Lägg till för currentUser
 
 interface ImageCarouselModalProps {
   images: ImageEntry[];
@@ -22,6 +21,7 @@ interface ImageCarouselModalProps {
 export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: ImageCarouselModalProps) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const { toast } = useToast();
+  const { currentUser } = useAuth(); // ✅ Lägg till för att få användare
 
   useEffect(() => {
     if (isOpen) {
@@ -39,16 +39,34 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
     }
   }, [images, currentIndex, isOpen, onClose]);
 
-  const handleRate = async (ratingType: "thumbsUp" | "thumbsDown") => {
-    if (!currentImage) return;
+  // ✅ Uppdaterad handleRate-funktion för att använda nya API:et
+  const handleRate = async (ratingType: "thumbs_up" | "thumbs_down") => {
+    if (!currentImage || !currentUser) return;
+    
     try {
-      await rateImage(currentImage.id, ratingType);
+      const response = await fetch(`/api/images/${currentImage.id}/rate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: currentUser,
+          ratingType,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to rate image');
+      }
+
       toast({
         title: "Rating Submitted",
-        description: `You rated this image ${ratingType === "thumbsUp" ? "thumbs up" : "thumbs down"}.`,
+        description: `You rated this image ${ratingType === "thumbs_up" ? "thumbs up" : "thumbs down"}.`,
       });
-      // Firestore real-time updates should refresh counts, no need to manually update state here for images prop
+      
+      // Polling kommer att uppdatera bilderna automatiskt
     } catch (error) {
+      console.error('Rating error:', error);
       toast({
         title: "Rating Error",
         description: "Could not submit your rating. Please try again.",
@@ -83,7 +101,6 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
     };
   }, [isOpen, goToPrevious, goToNext, onClose]);
 
-
   if (!isOpen || images.length === 0) {
     return null;
   }
@@ -94,14 +111,15 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
     return null;
   }
 
-  const timeAgo = currentImage.createdAt ? formatDistanceToNow(currentImage.createdAt.toDate(), { addSuffix: true }) : 'just now';
+  const createdAtDate = currentImage.created_at ? new Date(currentImage.created_at) : null;
+  const timeAgo = createdAtDate ? formatDistanceToNow(createdAtDate, { addSuffix: true }) : 'just now';
 
   return (
     <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
       <DialogContent className="max-w-3xl w-[90vw] h-[90vh] p-0 flex flex-col bg-card overflow-hidden">
         <DialogHeader>
           <DialogTitle className="sr-only">
-            Image Details: {currentImage.enhancedPrompt ? `${currentImage.enhancedPrompt.substring(0,70)}${currentImage.enhancedPrompt.length > 70 ? "..." : ""}` : "Generated Image"}
+            Image Details: {currentImage.enhanced_prompt ? `${currentImage.enhanced_prompt.substring(0,70)}${currentImage.enhanced_prompt.length > 70 ? "..." : ""}` : "Generated Image"}
           </DialogTitle>
         </DialogHeader>
         
@@ -114,10 +132,11 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
         </div>
 
         <div className="relative flex-grow flex items-center justify-center bg-muted/50 p-4">
-          {currentImage.imageDataUri && (
+          {/* ✅ Använd image_url istället för image_data_uri */}
+          {currentImage.image_url && (
             <Image
-              src={currentImage.imageDataUri}
-              alt={currentImage.enhancedPrompt || "Generated image"}
+              src={currentImage.image_url}
+              alt={currentImage.enhanced_prompt || "Generated image"}
               fill
               style={{ objectFit: 'contain' }}
               data-ai-hint="detailed view"
@@ -151,7 +170,7 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
         <div className="p-4 border-t bg-card space-y-3">
           <div className="flex items-center space-x-2 text-sm text-muted-foreground">
             <UserCircle className="h-5 w-5" />
-            <span>{currentImage.userId}</span>
+            <span>{currentImage.user_id}</span>
             <span className="text-xs">&bull; {timeAgo}</span>
             {images.length > 1 && (
                 <span className="ml-auto text-xs">({currentIndex + 1} of {images.length})</span>
@@ -160,27 +179,27 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
           <div>
             <h3 className="font-semibold text-sm">Enhanced Prompt:</h3>
             <p className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
-              {currentImage.enhancedPrompt}
+              {currentImage.enhanced_prompt}
             </p>
           </div>
           <div className="flex justify-end items-center space-x-2">
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => handleRate("thumbsUp")}
+              onClick={() => handleRate("thumbs_up")}
               aria-label="Thumbs Up"
               className="text-green-600 hover:bg-green-100 hover:text-green-700 px-2"
             >
-              <ThumbsUp className="h-5 w-5 mr-1" /> {currentImage.thumbsUp}
+              <ThumbsUp className="h-5 w-5 mr-1" /> {currentImage.thumbs_up}
             </Button>
             <Button
               variant="ghost"
               size="sm"
-              onClick={() => handleRate("thumbsDown")}
+              onClick={() => handleRate("thumbs_down")}
               aria-label="Thumbs Down"
               className="text-red-600 hover:bg-red-100 hover:text-red-700 px-2"
             >
-              <ThumbsDown className="h-5 w-5 mr-1" /> {currentImage.thumbsDown}
+              <ThumbsDown className="h-5 w-5 mr-1" /> {currentImage.thumbs_down}
             </Button>
           </div>
         </div>
@@ -188,4 +207,3 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
     </Dialog>
   );
 }
-

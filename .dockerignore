@@ -1,0 +1,24 @@
+# Block problematic platform-specific files
+node_modules
+.next
+package-lock.json
+
+# Block development/git files  
+.git
+.gitignore
+.env.local
+.env
+
+# Block runtime data (will be volume-mounted)
+data
+public/images
+
+# Block logs and OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# Block documentation
+README.md
+
+# DO NOT block src/ - we need the source code!
