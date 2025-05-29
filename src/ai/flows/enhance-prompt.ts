@@ -10,6 +10,7 @@
 
 import {ai} from '@/ai/genkit';
 import {z} from 'genkit';
+import { GoogleGenAI } from "@google/genai"; // Import direct Google GenAI package
 
 const EnhancePromptAndGenerateImageInputSchema = z.object({
   userPrompt: z
@@ -87,17 +88,53 @@ const enhancePromptAndGenerateImageFlow = ai.defineFlow(
   },
   async input => {
     const {output: enhancePromptOutput} = await enhancePrompt(input);
-    const {media} = await ai.generate({
-      model: 'googleai/gemini-2.0-flash-exp',
-      prompt: enhancePromptOutput!.enhancedPrompt,
+
+    if (!enhancePromptOutput?.enhancedPrompt) {
+      throw new Error("Failed to get an enhanced prompt.");
+    }
+
+    console.log(`[AI Flow] Enhanced prompt for Imagen: ${enhancePromptOutput.enhancedPrompt}`);
+
+    // Use @google/genai directly for Imagen 3, based on your working test_imagen3.mjs
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      console.error("[AI Flow] GEMINI_API_KEY is not set in environment variables.");
+      throw new Error("GEMINI_API_KEY is not set in environment variables.");
+    }
+
+    const directAi = new GoogleGenAI({ apiKey: apiKey });
+
+    console.log(`[AI Flow] Calling Imagen 3 directly with prompt: "${enhancePromptOutput.enhancedPrompt}"`);
+
+    const imagenResponse = await directAi.models.generateImages({
+      model: 'imagen-3.0-generate-002',
+      prompt: enhancePromptOutput.enhancedPrompt,
       config: {
-        responseModalities: ['TEXT', 'IMAGE'],
+        numberOfImages: 1, // We need one image for the UI
       },
     });
 
+    if (!imagenResponse || !imagenResponse.generatedImages || imagenResponse.generatedImages.length === 0) {
+      console.error("[AI Flow] Imagen 3 (direct call) did not return any images. Response:", imagenResponse);
+      if (imagenResponse && (imagenResponse as any).error) {
+         console.error("[AI Flow] Imagen 3 API Error:", (imagenResponse as any).error);
+      }
+      throw new Error("Imagen 3 (direct call) did not return any images.");
+    }
+
+    const generatedImage = imagenResponse.generatedImages[0];
+    if (!generatedImage.image?.imageBytes) {
+      console.error("[AI Flow] Imagen 3 (direct call) returned an image object without imageBytes. Image object:", generatedImage);
+      throw new Error("Imagen 3 (direct call) did not return image bytes for the generated image.");
+    }
+
+    // imageBytes is already a base64 string according to Google's documentation for this SDK method
+    const imageDataUri = `data:image/png;base64,${generatedImage.image.imageBytes}`;
+    console.log(`[AI Flow] Generated imageDataUri via direct call (first 50 chars): ${imageDataUri.substring(0, 50)}...`);
+
     return {
-      enhancedPrompt: enhancePromptOutput!.enhancedPrompt,
-      imageDataUri: Array.isArray(media) ? media[0]?.url : media?.url,
+      enhancedPrompt: enhancePromptOutput.enhancedPrompt,
+      imageDataUri: imageDataUri,
     };
   }
 );

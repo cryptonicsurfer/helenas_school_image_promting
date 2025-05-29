@@ -1,4 +1,4 @@
-
+// src/app/(authenticated)/prompt/page.tsx - Uppdaterad för nya API
 "use client";
 
 import { useState, type FormEvent } from "react";
@@ -7,12 +7,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import { addImage } from "@/services/firestoreService";
 import { enhancePromptAndGenerateImage } from "@/ai/flows/enhance-prompt";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Sparkles, Loader2, Send } from "lucide-react";
-// import Image from "next/image"; // No longer needed here
 
 export default function PromptPage() {
   const [prompt, setPrompt] = useState("");
@@ -38,19 +36,27 @@ export default function PromptPage() {
       console.log("enhancePromptAndGenerateImage returned:", result);
 
       if (result && result.imageDataUri && result.enhancedPrompt) {
-        console.log("Attempting to call addImage with data:", {
-          userId: currentUser,
-          originalPrompt: prompt,
-          enhancedPrompt: result.enhancedPrompt,
-          imageDataUri: result.imageDataUri,
+        console.log("Attempting to save image via API");
+        
+        const response = await fetch('/api/images', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: currentUser,
+            original_prompt: prompt,
+            enhanced_prompt: result.enhancedPrompt,
+            image_data_uri: result.imageDataUri,
+          }),
         });
-        await addImage({
-          userId: currentUser,
-          originalPrompt: prompt,
-          enhancedPrompt: result.enhancedPrompt,
-          imageDataUri: result.imageDataUri,
-        });
-        console.log("addImage call successful.");
+
+        if (!response.ok) {
+          throw new Error('Failed to save image');
+        }
+
+        const saveResult = await response.json();
+        console.log("API save result:", saveResult);
         
         setPrompt("");
         console.log("Prompt cleared.");
@@ -96,7 +102,7 @@ export default function PromptPage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <Sparkles className="h-8 w-8 mr-3 text-accent" />
-            Create Your Image
+            Skapa din bild
           </CardTitle>
           <CardDescription>
             Enter a prompt and our AI will enhance it and generate an image for you. Let your imagination run wild!
@@ -105,7 +111,7 @@ export default function PromptPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="prompt" className="text-lg font-medium">Your Idea</Label>
+              <Label htmlFor="prompt" className="text-lg font-medium">Beskriv Din idé</Label>
               <Textarea
                 id="prompt"
                 value={prompt}

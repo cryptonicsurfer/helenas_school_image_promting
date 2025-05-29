@@ -17,13 +17,13 @@ export function Navbar() {
   ];
 
   return (
-    <nav className="bg-primary shadow-md">
+    <nav className="bg-green-400 shadow-md">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center">
-            <Link href="/prompt" className="flex-shrink-0 text-primary-foreground hover:opacity-80 transition-opacity">
+            <Link href="/prompt" className="flex-shrink-0 text-black hover:opacity-80 transition-opacity">
               <Feather className="h-8 w-8 mr-2 inline-block" />
-              <span className="font-bold text-xl">Prompt Enhance</span>
+              <span className="font-bold text-xl">Plan FBG</span>
             </Link>
           </div>
           <div className="hidden md:flex items-center space-x-4">
@@ -47,7 +47,7 @@ export function Navbar() {
           <div className="flex items-center">
              {currentUser && (
                 <span className="text-primary-foreground mr-4 text-sm hidden sm:inline">
-                  Welcome, {currentUser}
+                  Välkommen, {currentUser}
                 </span>
               )}
             <Button variant="ghost" onClick={logout} className="text-primary-foreground hover:bg-primary/80">
