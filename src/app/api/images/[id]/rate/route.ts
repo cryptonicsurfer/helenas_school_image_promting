@@ -1,5 +1,6 @@
 // src/app/api/images/[id]/rate/route.ts
 import { NextRequest, NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { submitRating } from '@/services/imageService';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route'; // Adjusted path
@@ -30,6 +31,12 @@ export async function POST(request: NextRequest, { params }: RouteParams) {
     
     await submitRating(imageId, authenticatedUserId, ratingType as 'thumbs_up' | 'thumbs_down');
     
+    // Revalidate paths where images are displayed
+    revalidatePath('/prompt');
+    revalidatePath('/collage');
+    // If images are also on the home page or other specific image list pages, add them here.
+    // e.g., revalidatePath('/');
+
     return NextResponse.json({ success: true });
   } catch (error) {
     console.error('Error rating image:', error);

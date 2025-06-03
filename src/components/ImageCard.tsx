@@ -2,6 +2,7 @@
 "use client";
 
 import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { ThumbsUp, ThumbsDown, UserCircle, Expand } from "lucide-react";
@@ -17,6 +18,7 @@ interface ImageCardProps {
 
 export function ImageCard({ image, onView, currentUser }: ImageCardProps) {
   const { toast } = useToast();
+  const router = useRouter();
 
   const handleRate = async (ratingType: "thumbs_up" | "thumbs_down") => {
     try {
@@ -39,6 +41,7 @@ export function ImageCard({ image, onView, currentUser }: ImageCardProps) {
         title: "Rating Submitted",
         description: `You rated ${ratingType === "thumbs_up" ? "thumbs up" : "thumbs down"}.`,
       });
+      router.refresh(); // Refresh the current route's data
     } catch (error) {
       toast({
         title: "Rating Error",
