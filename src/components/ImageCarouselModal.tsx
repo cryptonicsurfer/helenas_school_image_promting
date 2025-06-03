@@ -123,13 +123,8 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
           </DialogTitle>
         </DialogHeader>
         
-        <div className="absolute top-2 right-2 z-20">
-          <DialogClose asChild>
-            <Button variant="ghost" size="icon" aria-label="Close carousel">
-              <X className="h-6 w-6" />
-            </Button>
-          </DialogClose>
-        </div>
+        {/* The DialogContent component from ui/dialog already includes a close button */}
+        {/* Removed redundant explicit close button to fix double X icon issue */}
 
         <div className="relative flex-grow flex items-center justify-center bg-muted/50 p-4">
           {/* ✅ Använd image_url istället för image_data_uri */}
@@ -170,7 +165,7 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
         <div className="p-4 border-t bg-card space-y-3">
           <div className="flex items-center space-x-2 text-sm text-muted-foreground">
             <UserCircle className="h-5 w-5" />
-            <span>{currentImage.user_id}</span>
+            <span>{currentImage.user_name || currentImage.user_id}</span>
             <span className="text-xs">&bull; {timeAgo}</span>
             {images.length > 1 && (
                 <span className="ml-auto text-xs">({currentIndex + 1} of {images.length})</span>

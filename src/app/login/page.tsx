@@ -12,37 +12,48 @@ import { Feather, LogIn } from "lucide-react";
 import { useRouter } from "next/navigation"; // Added useRouter
 
 export default function LoginPage() {
-  const [username, setUsername] = useState("");
+  const [email, setEmail] = useState(""); // Changed username to email
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
-  const { login, isAuthenticated, isLoading } = useAuth(); // Added isAuthenticated and isLoading
+  const { login, isAuthenticated, isLoading } = useAuth();
   const { toast } = useToast();
-  const router = useRouter(); // Initialized router
+  const router = useRouter();
 
   useEffect(() => {
     // Redirect to prompt page if already authenticated and not loading
+    // This logic is also present in AuthContext, but can be kept here for robustness
     if (!isLoading && isAuthenticated) {
       router.replace("/prompt");
     }
   }, [isAuthenticated, isLoading, router]);
 
-  const handleSubmit = (e: FormEvent) => {
+  const handleSubmit = async (e: FormEvent) => { // Made handleSubmit async
     e.preventDefault();
     setError("");
-    const success = login({ username, password });
-    if (!success) {
-      setError("Invalid username or password.");
+    try {
+      const success = await login({ email, password }); // Call with email, await the promise
+      if (!success) {
+        setError("Invalid email or password.");
+        toast({
+          title: "Login Failed",
+          description: "Invalid email or password. Please try again.",
+          variant: "destructive",
+        });
+      } else {
+        toast({
+          title: "Login Successful",
+          description: `Welcome! Redirecting...`, // Updated welcome message
+        });
+        // router.replace("/prompt"); // NextAuth/AuthContext handles redirection
+      }
+    } catch (err) {
+      console.error("Login error:", err);
+      setError("An unexpected error occurred during login.");
       toast({
-        title: "Login Failed",
-        description: "Invalid username or password. Please try again.",
+        title: "Login Error",
+        description: "An unexpected error occurred. Please try again.",
         variant: "destructive",
       });
-    } else {
-       toast({
-        title: "Login Successful",
-        description: `Welcome back, ${username}!`,
-      });
-      // Navigation is now handled by AuthContext's login or the useEffect above
     }
   };
 
@@ -69,13 +80,13 @@ export default function LoginPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
+              <Label htmlFor="email">Email</Label> {/* Changed label to Email */}
               <Input
-                id="username"
-                type="text"
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g., elev1"
+                id="email"
+                type="email" // Changed type to email
+                value={email}
+                onChange={(e) => setEmail(e.target.value)} // Update email state
+                placeholder="user@example.com" // Updated placeholder
                 required
                 className="text-base"
               />

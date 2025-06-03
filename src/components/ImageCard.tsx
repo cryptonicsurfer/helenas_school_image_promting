@@ -56,7 +56,7 @@ export function ImageCard({ image, onView, currentUser }: ImageCardProps) {
       <CardHeader className="pb-2">
         <div className="flex items-center space-x-2 text-sm text-muted-foreground mb-2">
           <UserCircle className="h-5 w-5" />
-          <span>{image.user_id}</span>
+          <span>{image.user_name || image.user_id}</span>
           <span className="text-xs">&bull; {timeAgo}</span>
         </div>
         <CardTitle className="text-lg leading-tight">Enhanced Prompt:</CardTitle>

@@ -10,29 +10,35 @@ export type { NewImagePayload };
 const eventListeners = new Set<(images: ImageEntry[]) => void>();
 
 export const addImageToDatabase = async (imageData: NewImagePayload): Promise<string> => {
-  const imageId = addImage(imageData);
+  const imageId = await addImage(imageData); // Await the async call
   
   // Notify all listeners about the new image
-  notifyListeners();
+  await notifyListeners(); // Await the async call
   
   return imageId;
 };
 
-export const getAllImages = (): ImageEntry[] => {
-  return getImages();
+export const getAllImages = async (): Promise<ImageEntry[]> => { // Make async and return Promise
+  return await getImages(); // Await the async call
 };
 
 export const submitRating = async (imageId: string, userId: string, ratingType: 'thumbs_up' | 'thumbs_down'): Promise<void> => {
-  rateImage(imageId, userId, ratingType);
+  await rateImage(imageId, userId, ratingType); // Await the async call
   
   // Notify all listeners about the rating update
-  notifyListeners();
+  await notifyListeners(); // Await the async call
 };
 
 // Compatibility functions for your existing code
 export const getImagesRealtime = (callback: (images: ImageEntry[]) => void) => {
   // Initial load
-  callback(getAllImages());
+  getAllImages().then(images => { // Handle promise for initial load
+    callback(images);
+  }).catch(error => {
+    console.error('Error fetching initial images for realtime:', error);
+    // Optionally call callback with empty array or handle error state
+    // callback([]);
+  });
   
   // Add to listeners for updates
   eventListeners.add(callback);
@@ -43,8 +49,8 @@ export const getImagesRealtime = (callback: (images: ImageEntry[]) => void) => {
   };
 };
 
-const notifyListeners = () => {
-  const images = getAllImages();
+const notifyListeners = async () => { // Make async
+  const images = await getAllImages(); // Await the async call
   eventListeners.forEach(callback => {
     try {
       callback(images);
