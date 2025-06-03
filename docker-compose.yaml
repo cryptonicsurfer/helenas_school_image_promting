@@ -1,18 +1,19 @@
-
----
-
-# docker-compose.yml
+# docker-compose.yaml (för Produktion på Linux VPS)
 version: '3.8'
+
 services:
-  prompt-enhance:
-    build: .
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile # Använder produktions-Dockerfile ovan
+    container_name: prompt_enhance_prod
     ports:
-      - "9002:3000"
+      - "9002:3000" # Host port 9002 : Container port 3000 (Next.js prod default)
     volumes:
-      - ./data:/app/data
-      - ./public/images:/app/public/images
+      - ./data:/app/data # Montera lokal ./data på VPS till /app/data i containern
+      - ./public/images:/app/public/images # Montera lokal ./public/images på VPS till /app/public/images
     environment:
       - NODE_ENV=production
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - GEMINI_API_KEY=${GEMINI_API_KEY} # Hämtas från .env-filen på VPS:en
+      # - DATABASE_URL=file:/app/data/app.db # Valfritt: explicit, men finns default i koden
     restart: unless-stopped
-

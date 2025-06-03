@@ -1,0 +1,38 @@
+# Dockerfile.dev (för Lokal Utveckling på Mac)
+FROM node:22-alpine
+
+# Installera byggberoenden för better-sqlite3
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    sqlite
+
+WORKDIR /app
+
+# Kopiera package.json och package-lock.json
+COPY package*.json ./
+
+# Installera alla beroenden (inklusive dev dependencies)
+# Använder npm install då package-lock kan variera mer under utveckling
+RUN npm install && npm cache clean --force
+
+# Skapa en icke-root användare och grupp
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+
+# Applikationsfiler kommer att monteras via docker-compose.
+# Denna WORKDIR och chown säkerställer att /app har rätt grundläggande ägarskap.
+RUN chown -R nextjs:nodejs /app
+
+# Skapa datakataloger inom /app, dessa kommer att vara volymmonteringar
+RUN mkdir -p /app/data /app/public/images && \
+    chown -R nextjs:nodejs /app/data /app/public/images
+
+# Byt till icke-root användaren
+USER nextjs
+
+EXPOSE 9002
+
+# Kommando för att köra utvecklingsservern
+CMD ["npm", "run", "dev"]

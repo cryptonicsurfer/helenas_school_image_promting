@@ -1,0 +1,27 @@
+# docker-compose.dev.yaml (för Lokal Utveckling på Mac)
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    container_name: prompt_enhance_dev
+    ports:
+      - "9002:9002" # Host port 9002 : Container port 9002 (från `npm run dev` skriptet)
+    volumes:
+      - .:/app # Montera aktuell projektkatalog till /app för live-kodändringar
+      # Denna namngivna volymstrategi för node_modules är vanlig för att undvika problem
+      # med host OS node_modules (t.ex. macOS) vs container OS (Linux).
+      - node_modules_volume:/app/node_modules
+      - ./data:/app/data # Montera lokal ./data katalog
+      - ./public/images:/app/public/images # Montera lokal ./public/images katalog
+    env_file:
+      - .env.local # Ladda miljövariabler från .env.local (för GEMINI_API_KEY)
+    environment:
+      - NODE_ENV=development
+      # CHOKIDAR_USEPOLLING=true # Kan behövas för hot-reloading på vissa Docker-setups för Mac/Windows
+    restart: "no" # Vanligtvis vill man inte ha automatisk omstart för utveckling
+
+volumes:
+  node_modules_volume: # Definierar den namngivna volymen för node_modules

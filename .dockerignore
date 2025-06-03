@@ -1,24 +1,58 @@
-# Block problematic platform-specific files
+# Blockera beroenden och byggartefakter som ska hanteras INUTI containern
 node_modules
 .next
-package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+*.tsbuildinfo
 
-# Block development/git files  
+# Blockera Git-katalog och filer
 .git
 .gitignore
-.env.local
+
+# Blockera miljöfiler (dessa ska injiceras i containern, inte kopieras in)
 .env
+.env.local
+.env.development
+.env.production
+.env.test
 
-# Block runtime data (will be volume-mounted)
-data
-public/images
-
-# Block logs and OS files
-*.log
+# Blockera OS-specifika filer
 .DS_Store
 Thumbs.db
 
-# Block documentation
-README.md
+# Blockera Docker-relaterade filer (de används för att bygga, inte som en del av appkoden)
+# Dockerfile
+# Dockerfile.dev
+# docker-compose.yaml
+# docker-compose.dev.yaml
+# *.dockerignore # Denna fil själv
 
-# DO NOT block src/ - we need the source code!
+# Blockera persistent data som hanteras via volymer
+# Dessa kataloger skapas i Dockerfile och monteras via docker-compose
+data/
+public/images/
+
+# Blockera Genkit cache/temporära filer (om .genkit/ innehåller sådant)
+.genkit/
+
+# Blockera Next.js utvecklingsspecifika typdefinitioner
+next-env.d.ts
+
+# Blockera dokumentation och andra projektfiler som inte behövs vid runtime
+README.md
+docs/
+# components.json # Shadcn UI konfigurationsfil, behövs inte vid runtime
+# postcss.config.mjs # Behövs för bygget, men om bygget sker i en tidigare stage och bara .next kopieras, kan den ignoreras för runner stage.
+# tailwind.config.ts # Samma som ovan.
+# tsconfig.json # Samma som ovan.
+
+# Eventuella loggfiler som kan genereras lokalt
+*.log
+
+# Eventuella .pem-filer eller andra känsliga filer som inte ska med
+*.pem
+
+# Vercel-specifik katalog
+.vercel

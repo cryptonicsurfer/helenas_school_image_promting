@@ -16,6 +16,12 @@
 │   │   │   ├── prompt
 │   │   │   │   └── page.tsx
 │   │   │   └── layout.tsx
+│   │   ├── api
+│   │   │   └── images
+│   │   │       ├── [id]
+│   │   │       │   └── rate
+│   │   │       │       └── route.ts
+│   │   │       └── route.ts
 │   │   ├── login
 │   │   │   └── page.tsx
 │   │   ├── globals.css
@@ -66,25 +72,21 @@
 │   │   └── use-toast.ts
 │   ├── lib
 │   │   ├── credentials.ts
-│   │   ├── supabaseClient.ts
+│   │   ├── database.ts
 │   │   └── utils.ts
 │   └── services
-│       └── supabaseService.ts
+│       └── imageService.ts
+├── .dockerignore
 ├── .gitignore
 ├── .modified
 ├── components.json
+├── docker-compose.yaml
+├── Dockerfile
 ├── next.config.ts
 ├── package.json
 ├── postcss.config.mjs
 ├── README.md
-├── supabase_disable_rls_test.sql
-├── supabase_rls_CLEAN_SETUP.sql
-├── supabase_rls_final_setup.sql
-├── supabase_rls_fix_comprehensive.sql
-├── supabase_rls_fix_insert.sql
-├── supabase_verify_policies.sql
-├── tailwind.config.ts
-└── test_imagen3.mjs
+└── tailwind.config.ts
 
 </file_map>
 
@@ -1486,6 +1488,218 @@ export {
 }
 
 
+// ---- File: ImageCarouselModal.tsx ----
+
+"use client";
+
+import React, { useState, useEffect, useCallback } from 'react';
+import Image from 'next/image';
+import { Dialog, DialogContent, DialogClose, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Button } from '@/components/ui/button';
+import { ThumbsUp, ThumbsDown, ChevronLeft, ChevronRight, UserCircle, X } from 'lucide-react';
+import type { ImageEntry } from '@/services/imageService'; // ✅ Ändrat från supabaseService
+import { useToast } from '@/hooks/use-toast';
+import { formatDistanceToNow } from 'date-fns';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext'; // ✅ Lägg till för currentUser
+
+interface ImageCarouselModalProps {
+  images: ImageEntry[];
+  startIndex: number;
+  isOpen: boolean;
+  onClose: () => void;
+}
+
+export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: ImageCarouselModalProps) {
+  const [currentIndex, setCurrentIndex] = useState(startIndex);
+  const { toast } = useToast();
+  const { currentUser } = useAuth(); // ✅ Lägg till för att få användare
+
+  useEffect(() => {
+    if (isOpen) {
+      setCurrentIndex(startIndex);
+    }
+  }, [startIndex, isOpen]);
+
+  useEffect(() => {
+    if (isOpen) {
+      if (images.length === 0) {
+        onClose(); 
+      } else if (currentIndex >= images.length) {
+        setCurrentIndex(Math.max(0, images.length - 1)); 
+      }
+    }
+  }, [images, currentIndex, isOpen, onClose]);
+
+  // ✅ Uppdaterad handleRate-funktion för att använda nya API:et
+  const handleRate = async (ratingType: "thumbs_up" | "thumbs_down") => {
+    if (!currentImage || !currentUser) return;
+    
+    try {
+      const response = await fetch(`/api/images/${currentImage.id}/rate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: currentUser,
+          ratingType,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to rate image');
+      }
+
+      toast({
+        title: "Rating Submitted",
+        description: `You rated this image ${ratingType === "thumbs_up" ? "thumbs up" : "thumbs down"}.`,
+      });
+      
+      // Polling kommer att uppdatera bilderna automatiskt
+    } catch (error) {
+      console.error('Rating error:', error);
+      toast({
+        title: "Rating Error",
+        description: "Could not submit your rating. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+
+  const goToPrevious = useCallback(() => {
+    setCurrentIndex((prevIndex) => (prevIndex > 0 ? prevIndex - 1 : images.length - 1));
+  }, [images.length]);
+
+  const goToNext = useCallback(() => {
+    setCurrentIndex((prevIndex) => (prevIndex < images.length - 1 ? prevIndex + 1 : 0));
+  }, [images.length]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (!isOpen) return;
+      if (event.key === 'ArrowLeft') {
+        goToPrevious();
+      } else if (event.key === 'ArrowRight') {
+        goToNext();
+      } else if (event.key === 'Escape') {
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, [isOpen, goToPrevious, goToNext, onClose]);
+
+  if (!isOpen || images.length === 0) {
+    return null;
+  }
+
+  const currentImage = images[currentIndex];
+  if (!currentImage) {
+    onClose();
+    return null;
+  }
+
+  const createdAtDate = currentImage.created_at ? new Date(currentImage.created_at) : null;
+  const timeAgo = createdAtDate ? formatDistanceToNow(createdAtDate, { addSuffix: true }) : 'just now';
+
+  return (
+    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-w-3xl w-[90vw] h-[90vh] p-0 flex flex-col bg-card overflow-hidden">
+        <DialogHeader>
+          <DialogTitle className="sr-only">
+            Image Details: {currentImage.enhanced_prompt ? `${currentImage.enhanced_prompt.substring(0,70)}${currentImage.enhanced_prompt.length > 70 ? "..." : ""}` : "Generated Image"}
+          </DialogTitle>
+        </DialogHeader>
+        
+        <div className="absolute top-2 right-2 z-20">
+          <DialogClose asChild>
+            <Button variant="ghost" size="icon" aria-label="Close carousel">
+              <X className="h-6 w-6" />
+            </Button>
+          </DialogClose>
+        </div>
+
+        <div className="relative flex-grow flex items-center justify-center bg-muted/50 p-4">
+          {/* ✅ Använd image_url istället för image_data_uri */}
+          {currentImage.image_url && (
+            <Image
+              src={currentImage.image_url}
+              alt={currentImage.enhanced_prompt || "Generated image"}
+              fill
+              style={{ objectFit: 'contain' }}
+              data-ai-hint="detailed view"
+              priority={true}
+            />
+          )}
+          {images.length > 1 && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={goToPrevious}
+                className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-background/50 hover:bg-background/80 text-foreground"
+                aria-label="Previous image"
+              >
+                <ChevronLeft className="h-8 w-8" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={goToNext}
+                className="absolute right-2 top-1/2 -translate-y-1/2 z-10 bg-background/50 hover:bg-background/80 text-foreground"
+                aria-label="Next image"
+              >
+                <ChevronRight className="h-8 w-8" />
+              </Button>
+            </>
+          )}
+        </div>
+
+        <div className="p-4 border-t bg-card space-y-3">
+          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
+            <UserCircle className="h-5 w-5" />
+            <span>{currentImage.user_id}</span>
+            <span className="text-xs">&bull; {timeAgo}</span>
+            {images.length > 1 && (
+                <span className="ml-auto text-xs">({currentIndex + 1} of {images.length})</span>
+            )}
+          </div>
+          <div>
+            <h3 className="font-semibold text-sm">Enhanced Prompt:</h3>
+            <p className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
+              {currentImage.enhanced_prompt}
+            </p>
+          </div>
+          <div className="flex justify-end items-center space-x-2">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleRate("thumbs_up")}
+              aria-label="Thumbs Up"
+              className="text-green-600 hover:bg-green-100 hover:text-green-700 px-2"
+            >
+              <ThumbsUp className="h-5 w-5 mr-1" /> {currentImage.thumbs_up}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => handleRate("thumbs_down")}
+              aria-label="Thumbs Down"
+              className="text-red-600 hover:bg-red-100 hover:text-red-700 px-2"
+            >
+              <ThumbsDown className="h-5 w-5 mr-1" /> {currentImage.thumbs_down}
+            </Button>
+          </div>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 // ---- File: dropdown-menu.tsx ----
 
 "use client"
@@ -1688,203 +1902,6 @@ export {
   DropdownMenuSubTrigger,
   DropdownMenuRadioGroup,
 }
-
-
-// ---- File: ImageCarouselModal.tsx ----
-
-
-"use client";
-
-import React, { useState, useEffect, useCallback } from 'react';
-import Image from 'next/image';
-import { Dialog, DialogContent, DialogClose, DialogHeader, DialogTitle } from '@/components/ui/dialog'; // Added DialogHeader, DialogTitle
-import { Button } from '@/components/ui/button';
-import { ThumbsUp, ThumbsDown, ChevronLeft, ChevronRight, UserCircle, X } from 'lucide-react';
-import type { ImageEntry } from '@/services/supabaseService'; // Changed to supabaseService
-import { rateImage } from '@/services/supabaseService'; // Changed to supabaseService
-import { useToast } from '@/hooks/use-toast';
-import { formatDistanceToNow } from 'date-fns';
-import { cn } from '@/lib/utils';
-
-interface ImageCarouselModalProps {
-  images: ImageEntry[];
-  startIndex: number;
-  isOpen: boolean;
-  onClose: () => void;
-}
-
-export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: ImageCarouselModalProps) {
-  const [currentIndex, setCurrentIndex] = useState(startIndex);
-  const { toast } = useToast();
-
-  useEffect(() => {
-    if (isOpen) {
-      setCurrentIndex(startIndex);
-    }
-  }, [startIndex, isOpen]);
-
-  useEffect(() => {
-    if (isOpen) {
-      if (images.length === 0) {
-        onClose(); 
-      } else if (currentIndex >= images.length) {
-        setCurrentIndex(Math.max(0, images.length - 1)); 
-      }
-    }
-  }, [images, currentIndex, isOpen, onClose]);
-
-  const handleRate = async (ratingType: "thumbs_up" | "thumbs_down") => { // Changed to snake_case
-    if (!currentImage) return;
-    try {
-      await rateImage(currentImage.id, ratingType);
-      toast({
-        title: "Rating Submitted",
-        description: `You rated this image ${ratingType === "thumbs_up" ? "thumbs up" : "thumbs down"}.`, // Changed to snake_case
-      });
-      // Supabase real-time updates should refresh counts, no need to manually update state here for images prop
-    } catch (error) {
-      toast({
-        title: "Rating Error",
-        description: "Could not submit your rating. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-
-  const goToPrevious = useCallback(() => {
-    setCurrentIndex((prevIndex) => (prevIndex > 0 ? prevIndex - 1 : images.length - 1));
-  }, [images.length]);
-
-  const goToNext = useCallback(() => {
-    setCurrentIndex((prevIndex) => (prevIndex < images.length - 1 ? prevIndex + 1 : 0));
-  }, [images.length]);
-
-  useEffect(() => {
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (!isOpen) return;
-      if (event.key === 'ArrowLeft') {
-        goToPrevious();
-      } else if (event.key === 'ArrowRight') {
-        goToNext();
-      } else if (event.key === 'Escape') {
-        onClose();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, goToPrevious, goToNext, onClose]);
-
-
-  if (!isOpen || images.length === 0) {
-    return null;
-  }
-
-  const currentImage = images[currentIndex];
-  if (!currentImage) {
-    onClose();
-    return null;
-  }
-
-  // Supabase returns created_at as an ISO string. Parse it.
-  const createdAtDate = currentImage.created_at ? new Date(currentImage.created_at) : null;
-  const timeAgo = createdAtDate ? formatDistanceToNow(createdAtDate, { addSuffix: true }) : 'just now';
-
-  return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl w-[90vw] h-[90vh] p-0 flex flex-col bg-card overflow-hidden">
-        <DialogHeader>
-          <DialogTitle className="sr-only">
-            Image Details: {currentImage.enhanced_prompt ? `${currentImage.enhanced_prompt.substring(0,70)}${currentImage.enhanced_prompt.length > 70 ? "..." : ""}` : "Generated Image"} {/* Changed to enhanced_prompt */}
-          </DialogTitle>
-        </DialogHeader>
-        
-        <div className="absolute top-2 right-2 z-20">
-          <DialogClose asChild>
-            <Button variant="ghost" size="icon" aria-label="Close carousel">
-              <X className="h-6 w-6" />
-            </Button>
-          </DialogClose>
-        </div>
-
-        <div className="relative flex-grow flex items-center justify-center bg-muted/50 p-4">
-          {currentImage.image_data_uri && ( // Changed to image_data_uri
-            <Image
-              src={currentImage.image_data_uri} // Changed to image_data_uri
-              alt={currentImage.enhanced_prompt || "Generated image"} // Changed to enhanced_prompt
-              fill
-              style={{ objectFit: 'contain' }}
-              data-ai-hint="detailed view"
-              priority={true}
-            />
-          )}
-          {images.length > 1 && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={goToPrevious}
-                className="absolute left-2 top-1/2 -translate-y-1/2 z-10 bg-background/50 hover:bg-background/80 text-foreground"
-                aria-label="Previous image"
-              >
-                <ChevronLeft className="h-8 w-8" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={goToNext}
-                className="absolute right-2 top-1/2 -translate-y-1/2 z-10 bg-background/50 hover:bg-background/80 text-foreground"
-                aria-label="Next image"
-              >
-                <ChevronRight className="h-8 w-8" />
-              </Button>
-            </>
-          )}
-        </div>
-
-        <div className="p-4 border-t bg-card space-y-3">
-          <div className="flex items-center space-x-2 text-sm text-muted-foreground">
-            <UserCircle className="h-5 w-5" />
-            <span>{currentImage.user_id}</span> {/* Changed to user_id */}
-            <span className="text-xs">&bull; {timeAgo}</span>
-            {images.length > 1 && (
-                <span className="ml-auto text-xs">({currentIndex + 1} of {images.length})</span>
-            )}
-          </div>
-          <div>
-            <h3 className="font-semibold text-sm">Enhanced Prompt:</h3>
-            <p className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
-              {currentImage.enhanced_prompt} {/* Changed to enhanced_prompt */}
-            </p>
-          </div>
-          <div className="flex justify-end items-center space-x-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleRate("thumbs_up")} // Changed to thumbs_up
-              aria-label="Thumbs Up"
-              className="text-green-600 hover:bg-green-100 hover:text-green-700 px-2"
-            >
-              <ThumbsUp className="h-5 w-5 mr-1" /> {currentImage.thumbs_up} {/* Changed to thumbs_up */}
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleRate("thumbs_down")} // Changed to thumbs_down
-              aria-label="Thumbs Down"
-              className="text-red-600 hover:bg-red-100 hover:text-red-700 px-2"
-            >
-              <ThumbsDown className="h-5 w-5 mr-1" /> {currentImage.thumbs_down} {/* Changed to thumbs_down */}
-            </Button>
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 
 
 // ---- File: enhance-prompt.ts ----
@@ -2195,309 +2212,9 @@ export {
 }
 
 
-// ---- File: supabaseService.ts ----
-
-import { supabase } from '@/lib/supabaseClient';
-import { RealtimeChannel } from '@supabase/supabase-js';
-
-// Matcha interfacet från din gamla firestoreService, men anpassa för Supabase
-// Notera att 'id' nu är en uuid (string) och 'createdAt' är en string (ISO 8601) från Supabase
-export interface ImageEntry {
-  id: string; // Kommer vara en UUID från Supabase
-  user_id: string; // Din befintliga "elev1", "elev2" etc.
-  original_prompt: string;
-  enhanced_prompt: string;
-  image_data_uri: string; // Eller image_url om du byter till Supabase Storage
-  thumbs_up: number;
-  thumbs_down: number;
-  created_at: string; // Supabase returnerar timestamps som ISO 8601 strängar
-}
-
-// Typ för data som skickas när en bild skapas.
-// 'id' och 'created_at' genereras av databasen.
-// 'thumbsUp' och 'thumbsDown' har defaultvärden i databasen.
-export type NewImagePayload = Omit<ImageEntry, "id" | "thumbs_up" | "thumbs_down" | "created_at">;
-
-let imagesChannel: RealtimeChannel | null = null;
-
-export const addImage = async (imageData: NewImagePayload): Promise<string | null> => {
-  try {
-    console.log("[supabaseService] Attempting to add image to Supabase with data:", imageData);
-    const { data, error } = await supabase
-      .from('images')
-      .insert([
-        {
-          user_id: imageData.user_id,
-          original_prompt: imageData.original_prompt,
-          enhanced_prompt: imageData.enhanced_prompt,
-          image_data_uri: imageData.image_data_uri,
-          // thumbs_up och thumbs_down har default 0 i databasen
-          // created_at sätts automatiskt av databasen
-        },
-      ])
-      .select('id') // Returnera ID på den nyskapade raden
-      .single(); // Förväntar oss en enskild rad tillbaka
-
-    if (error) {
-      console.error("[supabaseService] Error adding image to Supabase: ", error);
-      throw error;
-    }
-    if (data && data.id) {
-      console.log("[supabaseService] Image added with ID:", data.id);
-      return data.id;
-    }
-    // Lade till en mer specifik logg om data är null men inget fel rapporterades
-    console.warn("[supabaseService] addImage: Supabase insert returned no data and no error. Data:", data);
-    return null;
-  } catch (error) {
-    // Försöker logga mer detaljer om felet
-    console.error("[supabaseService] Exception when adding image: ", error);
-    if (error && typeof error === 'object' && 'message' in error) {
-      console.error("[supabaseService] Exception message: ", (error as Error).message);
-    }
-    throw error;
-  }
-};
-
-export const getImages = (
-  callback: (images: ImageEntry[]) => void
-): (() => Promise<string>) | null => { // Returnerar en unsubscribe-funktion
-  
-  // Hämta initiala bilder
-  const fetchInitialImages = async () => {
-    const { data, error } = await supabase
-      .from('images')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      console.error("[supabaseService] Error fetching initial images:", error);
-      callback([]); // Skicka tom array vid fel
-      return;
-    }
-    console.log('[supabaseService] Fetched initial images:', data ? `${data.length} images` : 'No images found');
-    callback(data as ImageEntry[] || []);
-  };
-
-  fetchInitialImages();
-
-  // Sätt upp realtidskanal
-  // Se till att du har aktiverat realtid för 'images'-tabellen i Supabase UI (Replication)
-  if (imagesChannel) {
-    console.warn("[supabaseService] Attempting to subscribe to images channel when already subscribed. Unsubscribing previous channel.");
-    imagesChannel.unsubscribe();
-  }
-
-  imagesChannel = supabase
-    .channel('images-feed')
-    .on(
-      'postgres_changes',
-      { event: '*', schema: 'public', table: 'images' },
-      (payload) => {
-        console.log('[supabaseService] Realtime change received:', payload);
-        // Efter en ändring, hämta alla bilder igen för att hålla det enkelt.
-        // För mer optimerad hantering kan du titta på payload.new, payload.old etc.
-        fetchInitialImages(); 
-      }
-    )
-    .subscribe((status, err) => {
-      if (status === 'SUBSCRIBED') {
-        console.log('[supabaseService] Successfully subscribed to images real-time feed!');
-      }
-      if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
-        console.error(`[supabaseService] Realtime subscription error: ${status}`, err);
-      }
-    });
-
-  // Returnera en funktion för att avregistrera lyssnaren
-  return async () => {
-    if (imagesChannel) {
-      const status = await imagesChannel.unsubscribe();
-      imagesChannel = null;
-      console.log('[supabaseService] Unsubscribed from images real-time feed with status:', status);
-      return status;
-    }
-    return 'NO_CHANNEL_TO_UNSUBSCRIBE';
-  };
-};
-
-export const rateImage = async (imageId: string, ratingType: "thumbs_up" | "thumbs_down"): Promise<void> => {
-  try {
-    // Använd RPC-funktionen vi skapade i Supabase SQL Editor
-    const { error } = await supabase.rpc('increment_rating', {
-      image_id_param: imageId,
-      rating_type_param: ratingType,
-    });
-
-    if (error) {
-      console.error(`[supabaseService] Error rating image ${imageId} with ${ratingType}:`, error);
-      throw error;
-    }
-    console.log(`[supabaseService] Image ${imageId} rated ${ratingType}`);
-  } catch (error) {
-    console.error("[supabaseService] Exception when rating image: ", error);
-    throw error;
-  }
-};
-
 // ---- File: page.tsx ----
 
-
-"use client";
-
-import React, { useEffect, useState, useRef } from "react"; // Added useRef
-import { getImages, type ImageEntry } from "@/services/supabaseService"; // Changed to supabaseService
-import { ImageCard } from "@/components/ImageCard";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Images, Info } from "lucide-react";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { useSearchParams, useRouter } from 'next/navigation';
-import { useToast } from '@/hooks/use-toast';
-import { ImageCarouselModal } from "@/components/ImageCarouselModal"; 
-import { Button } from "@/components/ui/button";
-
-export default function CollagePage() {
-  const [images, setImages] = useState<ImageEntry[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [isCarouselOpen, setIsCarouselOpen] = useState(false);
-  const [carouselStartIndex, setCarouselStartIndex] = useState(0);
-
-  const searchParams = useSearchParams();
-  const router = useRouter();
-  const { toast } = useToast();
-
-  useEffect(() => {
-    const success = searchParams.get('success');
-    if (success === 'true') {
-      toast({
-        title: "Image Generated & Saved!",
-        description: "Your masterpiece is now in the collage.",
-      });
-      // Remove the query parameter to prevent toast on refresh/re-navigation
-      const current = new URL(window.location.href);
-      current.searchParams.delete('success');
-      router.replace(current.pathname + current.search, { scroll: false });
-    }
-  }, [searchParams, router, toast]);
-
-  const unsubscribeRef = useRef<(() => Promise<string>) | null>(null);
-
-  useEffect(() => {
-    console.log("[CollagePage] Setting up Supabase listener for images...");
-    setIsLoading(true);
-    
-    const unsubscribeFn = getImages((fetchedImages) => {
-      console.log('[CollagePage] Received images from getImages callback. Count:', fetchedImages.length, 'Data:', fetchedImages);
-      // Supabase returns timestamps as strings, ensure ImageEntry type matches
-      setImages(fetchedImages as ImageEntry[]);
-      setIsLoading(false);
-    });
-
-    if (unsubscribeFn) {
-      unsubscribeRef.current = unsubscribeFn;
-    }
-
-    return () => {
-      if (unsubscribeRef.current) {
-        console.log("[CollagePage] Cleaning up Supabase listener.");
-        unsubscribeRef.current().then(status => {
-          console.log("[CollagePage] Supabase unsubscribe status:", status);
-        }).catch(error => {
-          console.error("[CollagePage] Error unsubscribing from Supabase:", error);
-        });
-      }
-    }
-  }, []);
-
-  const openCarousel = (index: number) => {
-    setCarouselStartIndex(index);
-    setIsCarouselOpen(true);
-  };
-
-  return (
-    <div className="space-y-8">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-        <h1 className="text-3xl md:text-4xl font-bold flex items-center text-primary">
-          <Images className="h-10 w-10 mr-3" />
-          Collective Collage
-        </h1>
-        <p className="text-muted-foreground text-sm sm:text-base">See what everyone is creating!</p>
-      </div>
-      
-      {images.length > 0 && !isLoading && (
-        <Button onClick={() => openCarousel(0)} variant="outline" className="mb-4">
-           View All in Carousel
-        </Button>
-      )}
-
-
-      {isLoading && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {[...Array(6)].map((_, i) => (
-            <Card key={i} className="shadow-lg">
-              <Skeleton className="h-10 w-3/4 m-4" /> 
-              <Skeleton className="h-6 w-full m-4" />
-              <Skeleton className="aspect-video w-full" />
-              <div className="p-4 flex justify-between">
-                <Skeleton className="h-8 w-20" />
-                <Skeleton className="h-8 w-20" />
-              </div>
-            </Card>
-          ))}
-        </div>
-      )}
-
-      {!isLoading && images.length === 0 && (
-         <Alert className="border-accent text-accent-foreground bg-accent/10">
-          <Info className="h-5 w-5 !text-accent" />
-          <AlertTitle className="font-semibold">No Images Yet!</AlertTitle>
-          <AlertDescription>
-            Be the first to create an image. Head over to the 'Create Prompt' page to generate your masterpiece. (If you have created images, check the browser console for Firestore connection errors.)
-          </AlertDescription>
-        </Alert>
-      )}
-
-      {!isLoading && images.length > 0 && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {images.map((image, index) => (
-            <ImageCard 
-              key={image.id} 
-              image={image} 
-              onView={() => openCarousel(index)}
-            />
-          ))}
-        </div>
-      )}
-
-      {isCarouselOpen && images.length > 0 && (
-        <ImageCarouselModal
-          images={images}
-          startIndex={carouselStartIndex}
-          isOpen={isCarouselOpen}
-          onClose={() => setIsCarouselOpen(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-// Keep Card component for Skeletons if still used elsewhere, or remove if not.
-// Assuming Skeleton might still use it implicitly or explicitly.
-interface CardProps extends React.HTMLAttributes<HTMLDivElement> {}
-
-const Card = React.forwardRef<HTMLDivElement, CardProps>(({ className, ...props }, ref) => (
-  <div
-    ref={ref}
-    className={`rounded-lg border bg-card text-card-foreground shadow-sm ${className || ''}`}
-    {...props}
-  />
-));
-Card.displayName = "Card";
-
-
-// ---- File: page.tsx ----
-
-
+// src/app/(authenticated)/prompt/page.tsx - Uppdaterad för nya API
 "use client";
 
 import { useState, type FormEvent } from "react";
@@ -2506,12 +2223,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { useAuth } from "@/contexts/AuthContext";
-import { addImage } from "@/services/supabaseService"; // Changed to supabaseService
 import { enhancePromptAndGenerateImage } from "@/ai/flows/enhance-prompt";
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from "next/navigation";
 import { Sparkles, Loader2, Send } from "lucide-react";
-// import Image from "next/image"; // No longer needed here
 
 export default function PromptPage() {
   const [prompt, setPrompt] = useState("");
@@ -2537,19 +2252,27 @@ export default function PromptPage() {
       console.log("enhancePromptAndGenerateImage returned:", result);
 
       if (result && result.imageDataUri && result.enhancedPrompt) {
-        console.log("Attempting to call addImage with data:", {
-          user_id: currentUser,
-          original_prompt: prompt, // Changed to original_prompt
-          enhanced_prompt: result.enhancedPrompt, // Changed to enhanced_prompt
-          image_data_uri: result.imageDataUri, // Changed to image_data_uri
+        console.log("Attempting to save image via API");
+        
+        const response = await fetch('/api/images', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            user_id: currentUser,
+            original_prompt: prompt,
+            enhanced_prompt: result.enhancedPrompt,
+            image_data_uri: result.imageDataUri,
+          }),
         });
-        await addImage({
-          user_id: currentUser,
-          original_prompt: prompt, // Changed to original_prompt
-          enhanced_prompt: result.enhancedPrompt, // Changed to enhanced_prompt
-          image_data_uri: result.imageDataUri, // Changed to image_data_uri
-        });
-        console.log("addImage call successful.");
+
+        if (!response.ok) {
+          throw new Error('Failed to save image');
+        }
+
+        const saveResult = await response.json();
+        console.log("API save result:", saveResult);
         
         setPrompt("");
         console.log("Prompt cleared.");
@@ -2595,7 +2318,7 @@ export default function PromptPage() {
         <CardHeader>
           <CardTitle className="text-2xl md:text-3xl font-bold flex items-center">
             <Sparkles className="h-8 w-8 mr-3 text-accent" />
-            Create Your Image
+            Skapa din bild
           </CardTitle>
           <CardDescription>
             Enter a prompt and our AI will enhance it and generate an image for you. Let your imagination run wild!
@@ -2604,7 +2327,7 @@ export default function PromptPage() {
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-6">
             <div>
-              <Label htmlFor="prompt" className="text-lg font-medium">Your Idea</Label>
+              <Label htmlFor="prompt" className="text-lg font-medium">Beskriv Din idé</Label>
               <Textarea
                 id="prompt"
                 value={prompt}
@@ -2643,6 +2366,152 @@ export default function PromptPage() {
   );
 }
 
+// ---- File: page.tsx ----
+
+// src/app/(authenticated)/collage/page.tsx
+"use client";
+
+import React, { useEffect, useState } from "react";
+import { type ImageEntry } from "@/services/imageService"; // ✅ Ändrat från supabaseService
+import { ImageCard } from "@/components/ImageCard";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Images, Info } from "lucide-react";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import { useSearchParams, useRouter } from 'next/navigation';
+import { useToast } from '@/hooks/use-toast';
+import { ImageCarouselModal } from "@/components/ImageCarouselModal"; 
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/contexts/AuthContext";
+
+export default function CollagePage() {
+  const [images, setImages] = useState<ImageEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [isCarouselOpen, setIsCarouselOpen] = useState(false);
+  const [carouselStartIndex, setCarouselStartIndex] = useState(0);
+
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const { toast } = useToast();
+  const { currentUser } = useAuth();
+
+  useEffect(() => {
+    const success = searchParams.get('success');
+    if (success === 'true') {
+      toast({
+        title: "Image Generated & Saved!",
+        description: "Your masterpiece is now in the collage.",
+      });
+      const current = new URL(window.location.href);
+      current.searchParams.delete('success');
+      router.replace(current.pathname + current.search, { scroll: false });
+    }
+  }, [searchParams, router, toast]);
+
+  useEffect(() => {
+    let pollInterval: NodeJS.Timeout;
+
+    const fetchImages = async () => {
+      try {
+        const response = await fetch('/api/images');
+        if (!response.ok) throw new Error('Failed to fetch images');
+        const fetchedImages = await response.json();
+        setImages(fetchedImages);
+        setIsLoading(false);
+      } catch (error) {
+        console.error('Error fetching images:', error);
+        setIsLoading(false);
+      }
+    };
+
+    // Initial fetch
+    fetchImages();
+
+    // Poll for updates every 5 seconds
+    pollInterval = setInterval(fetchImages, 5000);
+
+    return () => {
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, []);
+
+  const openCarousel = (index: number) => {
+    setCarouselStartIndex(index);
+    setIsCarouselOpen(true);
+  };
+
+  return (
+    <div className="space-y-8">
+      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+        <h1 className="text-3xl md:text-4xl font-bold flex items-center text-primary">
+          <Images className="h-10 w-10 mr-3" />
+          Collective Collage
+        </h1>
+        <p className="text-muted-foreground text-sm sm:text-base">See what everyone is creating!</p>
+      </div>
+      
+      {images.length > 0 && !isLoading && (
+        <Button onClick={() => openCarousel(0)} variant="outline" className="mb-4">
+           View All in Carousel
+        </Button>
+      )}
+
+      {isLoading && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {[...Array(6)].map((_, i) => (
+            <SkeletonCard key={i} />
+          ))}
+        </div>
+      )}
+
+      {!isLoading && images.length === 0 && (
+         <Alert className="border-accent text-accent-foreground bg-accent/10">
+          <Info className="h-5 w-5 !text-accent" />
+          <AlertTitle className="font-semibold">No Images Yet!</AlertTitle>
+          <AlertDescription>
+            Be the first to create an image. Head over to the 'Create Prompt' page to generate your masterpiece.
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {!isLoading && images.length > 0 && (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+          {images.map((image, index) => (
+            <ImageCard 
+              key={image.id} 
+              image={image} 
+              onView={() => openCarousel(index)}
+              currentUser={currentUser || ''}
+            />
+          ))}
+        </div>
+      )}
+
+      {isCarouselOpen && images.length > 0 && (
+        <ImageCarouselModal
+          images={images}
+          startIndex={carouselStartIndex}
+          isOpen={isCarouselOpen}
+          onClose={() => setIsCarouselOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Skeleton Card component
+function SkeletonCard() {
+  return (
+    <div className="rounded-lg border bg-card text-card-foreground shadow-sm shadow-lg">
+      <Skeleton className="h-10 w-3/4 m-4" /> 
+      <Skeleton className="h-6 w-full m-4" />
+      <Skeleton className="aspect-video w-full" />
+      <div className="p-4 flex justify-between">
+        <Skeleton className="h-8 w-20" />
+        <Skeleton className="h-8 w-20" />
+      </div>
+    </div>
+  );
+}
 
 // ---- File: toast.tsx ----
 
@@ -3446,103 +3315,6 @@ export {
 }
 
 
-// ---- File: ImageCard.tsx ----
-
-
-"use client";
-
-import Image from "next/image";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { ThumbsUp, ThumbsDown, UserCircle, Expand } from "lucide-react";
-import type { ImageEntry } from "@/services/supabaseService"; // Changed to supabaseService
-import { rateImage } from "@/services/supabaseService"; // Changed to supabaseService
-import { useToast } from "@/hooks/use-toast";
-import { formatDistanceToNow } from 'date-fns';
-
-interface ImageCardProps {
-  image: ImageEntry;
-  onView: () => void; // Callback to open the image in a carousel/modal
-}
-
-export function ImageCard({ image, onView }: ImageCardProps) {
-  const { toast } = useToast();
-
-  const handleRate = async (ratingType: "thumbs_up" | "thumbs_down") => { // Changed to snake_case
-    try {
-      await rateImage(image.id, ratingType);
-      toast({
-        title: "Rating Submitted",
-        description: `You rated ${ratingType === "thumbs_up" ? "thumbs up" : "thumbs down"}.`, // Changed to snake_case
-      });
-    } catch (error) {
-      toast({
-        title: "Rating Error",
-        description: "Could not submit your rating. Please try again.",
-        variant: "destructive",
-      });
-    }
-  };
-  
-  // Supabase returns created_at as an ISO string. Parse it.
-  const createdAtDate = image.created_at ? new Date(image.created_at) : null;
-  const timeAgo = createdAtDate ? formatDistanceToNow(createdAtDate, { addSuffix: true }) : 'just now';
-
-  return (
-    <Card className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col">
-      <CardHeader className="pb-2">
-        <div className="flex items-center space-x-2 text-sm text-muted-foreground mb-2">
-          <UserCircle className="h-5 w-5" />
-          <span>{image.user_id}</span> {/* Changed to user_id */}
-          <span className="text-xs">&bull; {timeAgo}</span>
-        </div>
-        <CardTitle className="text-lg leading-tight">Enhanced Prompt:</CardTitle>
-        <CardDescription className="text-sm h-16 overflow-y-auto">{image.enhanced_prompt}</CardDescription> {/* Changed to enhanced_prompt */}
-      </CardHeader>
-      <CardContent className="p-0 flex-grow">
-        {image.image_data_uri && ( // Changed to image_data_uri
-          <div className="aspect-video relative w-full bg-muted cursor-pointer" onClick={onView}>
-            <Image
-              src={image.image_data_uri} // Changed to image_data_uri
-              alt={image.enhanced_prompt || "Generated image"} // Changed to enhanced_prompt
-              layout="fill"
-              objectFit="contain"
-              data-ai-hint="abstract art"
-            />
-          </div>
-        )}
-      </CardContent>
-      <CardFooter className="flex justify-between items-center p-4">
-        <div className="flex items-center space-x-1">
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleRate("thumbs_up")} // Changed to thumbs_up
-            aria-label="Thumbs Up"
-            className="text-green-600 hover:bg-green-100 hover:text-green-700 px-2"
-          >
-            <ThumbsUp className="h-5 w-5 mr-1" /> {image.thumbs_up} {/* Changed to thumbs_up */}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => handleRate("thumbs_down")} // Changed to thumbs_down
-            aria-label="Thumbs Down"
-            className="text-red-600 hover:bg-red-100 hover:text-red-700 px-2"
-          >
-            <ThumbsDown className="h-5 w-5 mr-1" /> {image.thumbs_down} {/* Changed to thumbs_down */}
-          </Button>
-        </div>
-        <Button variant="outline" size="sm" onClick={onView} aria-label="View Full Image" className="px-2">
-          <Expand className="h-4 w-4 mr-1 sm:mr-2" />
-          <span className="hidden sm:inline">View</span>
-        </Button>
-      </CardFooter>
-    </Card>
-  );
-}
-
-
 // ---- File: dialog.tsx ----
 
 "use client"
@@ -3669,6 +3441,115 @@ export {
 }
 
 
+// ---- File: ImageCard.tsx ----
+
+// src/components/ImageCard.tsx
+"use client";
+
+import Image from "next/image";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { ThumbsUp, ThumbsDown, UserCircle, Expand } from "lucide-react";
+import type { ImageEntry } from "@/services/imageService";
+import { useToast } from "@/hooks/use-toast";
+import { formatDistanceToNow } from 'date-fns';
+
+interface ImageCardProps {
+  image: ImageEntry;
+  onView: () => void;
+  currentUser: string;
+}
+
+export function ImageCard({ image, onView, currentUser }: ImageCardProps) {
+  const { toast } = useToast();
+
+  const handleRate = async (ratingType: "thumbs_up" | "thumbs_down") => {
+    try {
+      const response = await fetch(`/api/images/${image.id}/rate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          userId: currentUser,
+          ratingType,
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to rate image');
+      }
+
+      toast({
+        title: "Rating Submitted",
+        description: `You rated ${ratingType === "thumbs_up" ? "thumbs up" : "thumbs down"}.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Rating Error",
+        description: "Could not submit your rating. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
+  
+  const createdAtDate = image.created_at ? new Date(image.created_at) : null;
+  const timeAgo = createdAtDate ? formatDistanceToNow(createdAtDate, { addSuffix: true }) : 'just now';
+
+  return (
+    <Card className="overflow-hidden shadow-lg hover:shadow-xl transition-shadow duration-300 flex flex-col">
+      <CardHeader className="pb-2">
+        <div className="flex items-center space-x-2 text-sm text-muted-foreground mb-2">
+          <UserCircle className="h-5 w-5" />
+          <span>{image.user_id}</span>
+          <span className="text-xs">&bull; {timeAgo}</span>
+        </div>
+        <CardTitle className="text-lg leading-tight">Enhanced Prompt:</CardTitle>
+        <CardDescription className="text-sm h-16 overflow-y-auto">{image.enhanced_prompt}</CardDescription>
+      </CardHeader>
+      <CardContent className="p-0 flex-grow">
+        {image.image_url && (
+          <div className="aspect-video relative w-full bg-muted cursor-pointer" onClick={onView}>
+            <Image
+              src={image.image_url}
+              alt={image.enhanced_prompt || "Generated image"}
+              fill
+              style={{ objectFit: 'contain' }}
+              data-ai-hint="abstract art"
+            />
+          </div>
+        )}
+      </CardContent>
+      <CardFooter className="flex justify-between items-center p-4">
+        <div className="flex items-center space-x-1">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleRate("thumbs_up")}
+            aria-label="Thumbs Up"
+            className="text-green-600 hover:bg-green-100 hover:text-green-700 px-2"
+          >
+            <ThumbsUp className="h-5 w-5 mr-1" /> {image.thumbs_up}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => handleRate("thumbs_down")}
+            aria-label="Thumbs Down"
+            className="text-red-600 hover:bg-red-100 hover:text-red-700 px-2"
+          >
+            <ThumbsDown className="h-5 w-5 mr-1" /> {image.thumbs_down}
+          </Button>
+        </div>
+        <Button variant="outline" size="sm" onClick={onView} aria-label="View Full Image" className="px-2">
+          <Expand className="h-4 w-4 mr-1 sm:mr-2" />
+          <span className="hidden sm:inline">View</span>
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
+
 // ---- File: page.tsx ----
 
 
@@ -3780,105 +3661,138 @@ export default function LoginPage() {
 }
 
 
-// ---- File: test_imagen3.mjs ----
+// ---- File: database.ts ----
 
-// Importera dotenv för att ladda .env-filen först
-// import 'dotenv/config'; // Kan vara kvar om du vill återgå till .env senare
+// src/lib/database.ts
+import Database from 'better-sqlite3';
+import path from 'path';
+import fs from 'fs';
+import crypto from 'crypto';
 
-import { GoogleGenAI } from "@google/genai";
-import * as fs from "node:fs";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
+const dbPath = process.env.DATABASE_URL?.replace('file:', '') || path.join(process.cwd(), 'data', 'app.db');
 
-const execAsync = promisify(exec);
-
-async function main() {
-  const apiKeyString = "hard_coded_api_key"; // Ersätt med din riktiga nyckel!
-
-  // ÄNDRA HÄR för att matcha Googles exempel exakt:
-  const ai = new GoogleGenAI({ apiKey: apiKeyString });
-
-  console.log("Använder API-nyckel (för felsökning):", apiKeyString.substring(0, 5) + "...");
-
-  const promptText = 'En glad robot som åker skateboard på månen, fotorealistisk stil, hög detaljrikedom';
-  const numberOfImagesToGenerate = 1;
-
-  console.log(`Genererar ${numberOfImagesToGenerate} bild(er) för prompten: "${promptText}"...`);
-
-  try {
-    const response = await ai.models.generateImages({
-      model: 'imagen-3.0-generate-002', // 'imagen-3.0-generate-002' är också giltigt
-      prompt: promptText,
-      config: {
-        numberOfImages: numberOfImagesToGenerate, // Som i Googles exempel
-      },
-    });
-
-    if (!response || !response.generatedImages || response.generatedImages.length === 0) {
-      console.error("Inga bilder returnerades från API:et.");
-      if (response && response.error) {
-        console.error("API Fel:", response.error);
-      }
-      return;
-    }
-
-    let idx = 1;
-    for (const generatedImage of response.generatedImages) {
-      if (generatedImage.image && generatedImage.image.imageBytes) {
-        let imgBytes = generatedImage.image.imageBytes;
-        const buffer = Buffer.from(imgBytes, "base64");
-        const fileName = `imagen-${idx}.png`;
-        fs.writeFileSync(fileName, buffer);
-        console.log(`Bild sparad som ${fileName}`);
-
-        let openCommand;
-        if (process.platform === "darwin") {
-          openCommand = `open "${fileName}"`;
-        } else if (process.platform === "win32") {
-          openCommand = `start "" "${fileName}"`;
-        } else {
-          openCommand = `xdg-open "${fileName}"`;
-        }
-
-        try {
-          await execAsync(openCommand);
-          console.log(`Försöker öppna ${fileName}...`);
-        } catch (err) {
-          console.error(`Kunde inte öppna bilden automatiskt: ${err.message}`);
-          console.log(`Du kan öppna den manuellt: ${fileName}`);
-        }
-        idx++;
-      } else {
-        console.warn("Mottog ett genererat bildobjekt utan bilddata:", generatedImage);
-      }
-    }
-
-    if (idx === 1 && response.generatedImages.length > 0) {
-        console.log("Det fanns genererade bilder, men ingen valid bilddata att spara.");
-    } else if (idx === 1) {
-        console.log("Inga bilder kunde behandlas.");
-    }
-
-  } catch (error) {
-    console.error("Ett fel inträffade vid bildgenerering:", error);
-    // Försök logga mer detaljer från felet om det finns
-    if (error.response && error.response.data) {
-      console.error("API Fel Data:", JSON.stringify(error.response.data, null, 2));
-    } else if (error.message) {
-      console.error("Felmeddelande:", error.message);
-    }
-     if (error.cause) { // Vissa fel kan ha en 'cause' property med mer info
-      console.error("Felorsak:", error.cause);
-    }
-  }
+// Ensure data directory exists
+const dataDir = path.dirname(dbPath);
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
 }
 
-main();
+const db = new Database(dbPath);
+
+// Initialize tables
+db.exec(`
+  CREATE TABLE IF NOT EXISTS images (
+    id TEXT PRIMARY KEY,
+    user_id TEXT NOT NULL,
+    original_prompt TEXT NOT NULL,
+    enhanced_prompt TEXT NOT NULL,
+    image_filename TEXT NOT NULL,
+    thumbs_up INTEGER DEFAULT 0,
+    thumbs_down INTEGER DEFAULT 0,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+  );
+
+  CREATE TABLE IF NOT EXISTS ratings (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    image_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    rating_type TEXT NOT NULL CHECK (rating_type IN ('thumbs_up', 'thumbs_down')),
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(image_id, user_id),
+    FOREIGN KEY (image_id) REFERENCES images (id)
+  );
+`);
+
+export interface ImageEntry {
+  id: string;
+  user_id: string;
+  original_prompt: string;
+  enhanced_prompt: string;
+  image_filename: string;
+  image_url?: string; // For compatibility with your existing components
+  thumbs_up: number;
+  thumbs_down: number;
+  created_at: string;
+}
+
+export interface NewImagePayload {
+  user_id: string;
+  original_prompt: string;
+  enhanced_prompt: string;
+  image_data: Buffer;
+}
+
+// Save image to file system and return filename
+function saveImageFile(imageBuffer: Buffer, imageId: string): string {
+  const imagesDir = path.join(process.cwd(), 'public', 'images');
+  if (!fs.existsSync(imagesDir)) {
+    fs.mkdirSync(imagesDir, { recursive: true });
+  }
+  
+  const filename = `${imageId}.png`;
+  const filepath = path.join(imagesDir, filename);
+  fs.writeFileSync(filepath, imageBuffer);
+  return filename;
+}
+
+export const addImage = (imageData: NewImagePayload): string => {
+  const id = crypto.randomUUID();
+  const filename = saveImageFile(imageData.image_data, id);
+  
+  const stmt = db.prepare(`
+    INSERT INTO images (id, user_id, original_prompt, enhanced_prompt, image_filename)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  
+  stmt.run(id, imageData.user_id, imageData.original_prompt, imageData.enhanced_prompt, filename);
+  return id;
+};
+
+export const getImages = (): ImageEntry[] => {
+  const stmt = db.prepare(`
+    SELECT * FROM images 
+    ORDER BY created_at DESC
+  `);
+  
+  const images = stmt.all() as ImageEntry[];
+  
+  // Add image_url for compatibility
+  return images.map(image => ({
+    ...image,
+    image_url: `/images/${image.image_filename}`
+  }));
+};
+
+export const rateImage = (imageId: string, userId: string, ratingType: 'thumbs_up' | 'thumbs_down'): void => {
+  db.transaction(() => {
+    // Remove any existing rating from this user for this image
+    const deleteStmt = db.prepare('DELETE FROM ratings WHERE image_id = ? AND user_id = ?');
+    deleteStmt.run(imageId, userId);
+    
+    // Add new rating
+    const insertStmt = db.prepare(`
+      INSERT INTO ratings (image_id, user_id, rating_type)
+      VALUES (?, ?, ?)
+    `);
+    insertStmt.run(imageId, userId, ratingType);
+    
+    // Update counts in images table
+    const updateStmt = db.prepare(`
+      UPDATE images SET 
+        thumbs_up = (SELECT COUNT(*) FROM ratings WHERE image_id = ? AND rating_type = 'thumbs_up'),
+        thumbs_down = (SELECT COUNT(*) FROM ratings WHERE image_id = ? AND rating_type = 'thumbs_down')
+      WHERE id = ?
+    `);
+    updateStmt.run(imageId, imageId, imageId);
+  })();
+};
+
+export default db;
 
 // ---- File: package.json ----
 
 {
-  "name": "nextn",
+  "name": "prompt-enhance-sqlite",
   "version": "0.1.0",
   "private": true,
   "scripts": {
@@ -3888,11 +3802,18 @@ main();
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "docker:build": "docker build -t prompt-enhance .",
+    "docker:run": "docker-compose up -d",
+    "docker:stop": "docker-compose down",
+    "docker:logs": "docker-compose logs -f"
+  },
+    "engines": {
+    "node": ">=22.0.0",
+    "npm": ">=10.0.0"
   },
   "dependencies": {
     "@genkit-ai/googleai": "^1.8.0",
-    "@genkit-ai/next": "^1.8.0",
     "@google/genai": "^1.1.0",
     "@hookform/resolvers": "^4.1.3",
     "@radix-ui/react-accordion": "^1.2.3",
@@ -3915,9 +3836,7 @@ main();
     "@radix-ui/react-tabs": "^1.1.3",
     "@radix-ui/react-toast": "^1.2.6",
     "@radix-ui/react-tooltip": "^1.1.8",
-    "@supabase/supabase-js": "^2.49.8",
-    "@tanstack-query-firebase/react": "^1.0.5",
-    "@tanstack/react-query": "^5.66.0",
+    "better-sqlite3": "^9.4.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
@@ -3925,7 +3844,6 @@ main();
     "genkit": "^1.8.0",
     "lucide-react": "^0.475.0",
     "next": "15.2.3",
-    "patch-package": "^8.0.0",
     "react": "^18.3.1",
     "react-day-picker": "^8.10.1",
     "react-dom": "^18.3.1",
@@ -3936,6 +3854,7 @@ main();
     "zod": "^3.24.2"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^20",
     "@types/react": "^18",
     "@types/react-dom": "^18",
@@ -3945,7 +3864,6 @@ main();
     "typescript": "^5"
   }
 }
-
 
 // ---- File: tailwind.config.ts ----
 
@@ -4272,13 +4190,13 @@ export function Navbar() {
   ];
 
   return (
-    <nav className="bg-primary shadow-md">
+    <nav className="bg-green-400 shadow-md">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between">
           <div className="flex items-center">
-            <Link href="/prompt" className="flex-shrink-0 text-primary-foreground hover:opacity-80 transition-opacity">
+            <Link href="/prompt" className="flex-shrink-0 text-black hover:opacity-80 transition-opacity">
               <Feather className="h-8 w-8 mr-2 inline-block" />
-              <span className="font-bold text-xl">Prompt Enhance</span>
+              <span className="font-bold text-xl">Plan FBG</span>
             </Link>
           </div>
           <div className="hidden md:flex items-center space-x-4">
@@ -4302,7 +4220,7 @@ export function Navbar() {
           <div className="flex items-center">
              {currentUser && (
                 <span className="text-primary-foreground mr-4 text-sm hidden sm:inline">
-                  Welcome, {currentUser}
+                  Välkommen, {currentUser}
                 </span>
               )}
             <Button variant="ghost" onClick={logout} className="text-primary-foreground hover:bg-primary/80">
@@ -4930,51 +4848,67 @@ ScrollBar.displayName = ScrollAreaPrimitive.ScrollAreaScrollbar.displayName
 export { ScrollArea, ScrollBar }
 
 
-// ---- File: supabase_rls_fix_comprehensive.sql ----
+// ---- File: imageService.ts ----
 
--- Comprehensive RLS fix for images table
--- This script ensures proper permissions for anonymous users
+// src/services/imageService.ts
+import { addImage, getImages, rateImage, type ImageEntry, type NewImagePayload } from '@/lib/database';
 
--- First, let's make sure RLS is enabled on the images table
-ALTER TABLE public.images ENABLE ROW LEVEL SECURITY;
+// För kompatibilitet med din befintliga kod
+export { type ImageEntry };
 
--- Drop all existing policies to start fresh
-DROP POLICY IF EXISTS "Allow individual insert" ON public.images;
-DROP POLICY IF EXISTS "Allow anon insert to images" ON public.images;
-DROP POLICY IF EXISTS "Allow authenticated read access" ON public.images;
-DROP POLICY IF EXISTS "Allow authenticated read access to images" ON public.images;
-DROP POLICY IF EXISTS "Allow individual update for rating" ON public.images;
-DROP POLICY IF EXISTS "Allow anon update for rating images" ON public.images;
+export type { NewImagePayload };
 
--- Create a comprehensive INSERT policy for anonymous users
-CREATE POLICY "Enable insert for anon users" ON public.images
-    FOR INSERT 
-    TO anon 
-    WITH CHECK (true);
+// Real-time updates using EventSource (för frontend)
+const eventListeners = new Set<(images: ImageEntry[]) => void>();
 
--- Create a comprehensive SELECT policy for all authenticated users (including anon)
-CREATE POLICY "Enable read access for authenticated users" ON public.images
-    FOR SELECT 
-    TO authenticated, anon
-    USING (true);
+export const addImageToDatabase = async (imageData: NewImagePayload): Promise<string> => {
+  const imageId = addImage(imageData);
+  
+  // Notify all listeners about the new image
+  notifyListeners();
+  
+  return imageId;
+};
 
--- Create a comprehensive UPDATE policy for anonymous users (for rating functionality)
-CREATE POLICY "Enable update for anon users" ON public.images
-    FOR UPDATE 
-    TO anon 
-    USING (true) 
-    WITH CHECK (true);
+export const getAllImages = (): ImageEntry[] => {
+  return getImages();
+};
 
--- Also create a DELETE policy in case it's needed later
-CREATE POLICY "Enable delete for anon users" ON public.images
-    FOR DELETE 
-    TO anon 
-    USING (true);
+export const submitRating = async (imageId: string, userId: string, ratingType: 'thumbs_up' | 'thumbs_down'): Promise<void> => {
+  rateImage(imageId, userId, ratingType);
+  
+  // Notify all listeners about the rating update
+  notifyListeners();
+};
 
--- Verify the policies are created
-SELECT schemaname, tablename, policyname, permissive, roles, cmd, qual, with_check
-FROM pg_policies 
-WHERE tablename = 'images';
+// Compatibility functions for your existing code
+export const getImagesRealtime = (callback: (images: ImageEntry[]) => void) => {
+  // Initial load
+  callback(getAllImages());
+  
+  // Add to listeners for updates
+  eventListeners.add(callback);
+  
+  // Return unsubscribe function
+  return () => {
+    eventListeners.delete(callback);
+  };
+};
+
+const notifyListeners = () => {
+  const images = getAllImages();
+  eventListeners.forEach(callback => {
+    try {
+      callback(images);
+    } catch (error) {
+      console.error('Error in image listener:', error);
+    }
+  });
+};
+
+// Export compatibility functions with same names as your Supabase service
+export const addImageCompatible = addImageToDatabase;
+export const rateImageCompatible = submitRating;
 
 // ---- File: radio-group.tsx ----
 
@@ -5078,6 +5012,49 @@ AvatarFallback.displayName = AvatarPrimitive.Fallback.displayName
 export { Avatar, AvatarImage, AvatarFallback }
 
 
+// ---- File: route.ts ----
+
+// src/app/api/images/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { getAllImages, addImageToDatabase } from '@/services/imageService';
+
+export async function GET() {
+  try {
+    const images = getAllImages();
+    return NextResponse.json(images);
+  } catch (error) {
+    console.error('Error fetching images:', error);
+    return NextResponse.json({ error: 'Failed to fetch images' }, { status: 500 });
+  }
+}
+
+export async function POST(request: NextRequest) {
+  try {
+    const data = await request.json();
+    const { user_id, original_prompt, enhanced_prompt, image_data_uri } = data;
+    
+    if (!image_data_uri || !user_id || !original_prompt || !enhanced_prompt) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+    
+    // Convert base64 to buffer
+    const base64Data = image_data_uri.replace(/^data:image\/[a-z]+;base64,/, '');
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    
+    const imageId = await addImageToDatabase({
+      user_id,
+      original_prompt,
+      enhanced_prompt,
+      image_data: imageBuffer,
+    });
+    
+    return NextResponse.json({ success: true, imageId });
+  } catch (error) {
+    console.error('Error adding image:', error);
+    return NextResponse.json({ error: 'Failed to add image' }, { status: 500 });
+  }
+}
+
 // ---- File: blueprint.md ----
 
 # **App Name**: Prompt Enhance
@@ -5135,40 +5112,6 @@ PopoverContent.displayName = PopoverPrimitive.Content.displayName
 
 export { Popover, PopoverTrigger, PopoverContent }
 
-
-// ---- File: supabase_rls_fix_insert.sql ----
-
--- Ta bort den gamla policyn om den finns (ignorera fel om den inte finns)
-DROP POLICY IF EXISTS "Allow individual insert" ON public.images;
-
--- Tillåt anonyma användare (de som använder anon-nyckeln) att infoga rader i images-tabellen.
--- Detta är mindre säkert än att kräva fullständig autentisering,
--- men matchar din nuvarande applikationsstruktur där du inte använder Supabase Auth.
-CREATE POLICY "Allow anon insert to images"
-ON public.images
-FOR INSERT
-TO anon -- Specifikt för anon-rollen
-WITH CHECK (true);
-
--- Se till att select fortfarande är tillåtet för "authenticated" (vilket inkluderar anon för select)
--- Om du inte redan har en fungerande select-policy, lägg till/justera denna:
-DROP POLICY IF EXISTS "Allow authenticated read access" ON public.images;
-CREATE POLICY "Allow authenticated read access to images"
-ON public.images
-FOR SELECT
-TO authenticated
-USING (true);
-
--- Om du vill att rateImage ska fungera, behöver du också en UPDATE policy.
--- Denna tillåter anon att uppdatera vilken rad som helst, vilket kan vara för brett.
--- Överväg att begränsa detta om det behövs.
-DROP POLICY IF EXISTS "Allow individual update for rating" ON public.images;
-CREATE POLICY "Allow anon update for rating images"
-ON public.images
-FOR UPDATE
-TO anon -- Specifikt för anon-rollen
-USING (true)
-WITH CHECK (true);
 
 // ---- File: tooltip.tsx ----
 
@@ -5388,33 +5331,81 @@ Slider.displayName = SliderPrimitive.Root.displayName
 export { Slider }
 
 
-// ---- File: supabase_rls_final_setup.sql ----
+// ---- File: Dockerfile ----
 
--- Se till att RLS är PÅ för images-tabellen i Supabase Dashboard först!
--- Ta bort eventuella gamla/konflikterande policyer för images-tabellen innan du kör detta.
--- Du kan göra det via UI:t eller med DROP POLICY IF EXISTS ...;
+# Dockerfile
+FROM node:22-alpine
 
--- 1. Policy för INSERT (för anon-rollen, som din app använder)
-CREATE POLICY "Allow anon inserts on images"
-ON public.images
-FOR INSERT
-TO anon
-WITH CHECK (true);
+# Install build dependencies for better-sqlite3
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    sqlite
 
--- 2. Policy för SELECT (för authenticated-rollen, vilket anon-nyckeln agerar som för SELECT)
-CREATE POLICY "Allow authenticated reads on images"
-ON public.images
-FOR SELECT
-TO authenticated
-USING (true);
+WORKDIR /app
 
--- 3. Policy för UPDATE (för anon-rollen, för betygsättning)
-CREATE POLICY "Allow anon updates on images for rating"
-ON public.images
-FOR UPDATE
-TO anon
-USING (true) -- Tillåter uppdatering av vilken rad som helst av anon
-WITH CHECK (true); -- Kontrollerar inte specifika fält, tillåter alla uppdateringar av anon
+# Copy package files
+COPY package*.json ./
+
+# Clean any existing node_modules and package-lock
+RUN rm -rf node_modules package-lock.json
+
+# Install dependencies (will rebuild native modules for correct architecture)
+RUN npm install --omit=dev && npm cache clean --force
+
+# Copy source code (go back to simple approach but with good .dockerignore)
+COPY . .
+
+# Create non-root user for security
+RUN addgroup --system --gid 1001 nodejs
+RUN adduser --system --uid 1001 nextjs
+
+# Create directories and set permissions
+RUN mkdir -p /app/data /app/public/images
+RUN chown -R nextjs:nodejs /app
+
+# Build the application
+RUN npm run build
+
+# Switch to non-root user
+USER nextjs
+
+# Expose port
+EXPOSE 3000
+
+# Start the application
+CMD ["npm", "start"]
+
+// ---- File: route.ts ----
+
+// src/app/api/images/[id]/rate/route.ts
+import { NextRequest, NextResponse } from 'next/server';
+import { submitRating } from '@/services/imageService';
+
+interface RouteParams {
+  params: Promise<{
+    id: string;
+  }>;
+}
+
+export async function POST(request: NextRequest, { params }: RouteParams) {
+  try {
+    const { userId, ratingType } = await request.json();
+    const { id } = await params; // ✅ Await params before using
+    
+    if (!userId || !ratingType || !['thumbs_up', 'thumbs_down'].includes(ratingType)) {
+      return NextResponse.json({ error: 'Invalid rating data' }, { status: 400 });
+    }
+    
+    await submitRating(id, userId, ratingType);
+    
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Error rating image:', error);
+    return NextResponse.json({ error: 'Failed to rate image' }, { status: 500 });
+  }
+}
 
 // ---- File: layout.tsx ----
 
@@ -5436,7 +5427,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: 'Prompt Enhance',
+  title: 'Plan Falkenbergs Framtid',
   description: 'Enhance prompts and generate images with AI.',
 };
 
@@ -5457,60 +5448,6 @@ export default function RootLayout({
   );
 }
 
-
-// ---- File: supabase_rls_CLEAN_SETUP.sql ----
-
--- Se till att RLS är PÅ för images-tabellen i Supabase Dashboard först!
--- Och att ALLA gamla policyer för public.images är BORTTAGNA via UI:t!
-
--- 1. Policy för INSERT (för anon-rollen)
-CREATE POLICY "Allow ANON Insert on Images"
-ON public.images
-FOR INSERT
-TO anon
-WITH CHECK (true);
-
--- 2. Policy för SELECT (för authenticated-rollen, vilket anon-nyckeln agerar som för SELECT)
-CREATE POLICY "Allow AUTHENTICATED Read on Images"
-ON public.images
-FOR SELECT
-TO authenticated
-USING (true);
-
--- 3. Policy för UPDATE (för anon-rollen, för betygsättning)
-CREATE POLICY "Allow ANON Update on Images"
-ON public.images
-FOR UPDATE
-TO anon
-USING (true) -- Viktigt för UPDATE att specificera vilka rader som får uppdateras
-WITH CHECK (true); -- Kontrollerar datan som skrivs
-
-// ---- File: supabase_verify_policies.sql ----
-
-SELECT
-    n.nspname AS schema_name,
-    c.relname AS table_name,
-    p.polname AS policy_name,
-    p.polcmd AS command_type, -- r = SELECT, a = INSERT, w = UPDATE, d = DELETE, * = ALL
-    p.polpermissive AS is_permissive,
-    pg_get_expr(p.polqual, p.polrelid) AS using_expression,
-    pg_get_expr(p.polwithcheck, p.polrelid) AS with_check_expression,
-    array_to_string(
-        ARRAY(
-            SELECT rolname
-            FROM pg_roles
-            WHERE oid = ANY(p.polroles)
-        ),
-        ', '
-    ) AS roles
-FROM
-    pg_policy p
-JOIN
-    pg_class c ON c.oid = p.polrelid
-JOIN
-    pg_namespace n ON n.oid = c.relnamespace
-WHERE
-    c.relname = 'images' AND n.nspname = 'public';
 
 // ---- File: credentials.ts ----
 
@@ -5727,6 +5664,62 @@ Label.displayName = LabelPrimitive.Root.displayName
 export { Label }
 
 
+// ---- File: .gitignore ----
+
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+.genkit/*
+.env*
+.yaml
+
+
+# firebase
+firebase-debug.log
+firestore-debug.log
+
+# Database files
+*.sqlite
+*.db
+/data
+/public/images
+
 // ---- File: textarea.tsx ----
 
 import * as React from 'react';
@@ -5783,56 +5776,6 @@ const nextConfig: NextConfig = {
 export default nextConfig;
 
 
-// ---- File: .gitignore ----
-
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-
-# dependencies
-/node_modules
-/.pnp
-.pnp.*
-.yarn/*
-!.yarn/patches
-!.yarn/plugins
-!.yarn/releases
-!.yarn/versions
-
-# testing
-/coverage
-
-# next.js
-/.next/
-/out/
-
-# production
-/build
-
-# misc
-.DS_Store
-*.pem
-
-# debug
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-.pnpm-debug.log*
-
-# vercel
-.vercel
-
-# typescript
-*.tsbuildinfo
-next-env.d.ts
-
-.genkit/*
-.env*
-.yaml
-
-
-# firebase
-firebase-debug.log
-firestore-debug.log
-
 // ---- File: use-mobile.tsx ----
 
 import * as React from "react"
@@ -5880,33 +5823,54 @@ export function useIsMobile() {
   "iconLibrary": "lucide"
 }
 
-// ---- File: supabaseClient.ts ----
+// ---- File: docker-compose.yaml ----
 
-import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+---
 
-if (!supabaseUrl) {
-  throw new Error("Missing env.NEXT_PUBLIC_SUPABASE_URL. Please add it to your .env.local file.");
-}
-if (!supabaseAnonKey) {
-  throw new Error("Missing env.NEXT_PUBLIC_SUPABASE_ANON_KEY. Please add it to your .env.local file.");
-}
+# docker-compose.yml
+version: '3.8'
+services:
+  prompt-enhance:
+    build: .
+    ports:
+      - "9002:3000"
+    volumes:
+      - ./data:/app/data
+      - ./public/images:/app/public/images
+    environment:
+      - NODE_ENV=production
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+    restart: unless-stopped
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
-// ---- File: supabase_disable_rls_test.sql ----
 
--- Temporary fix: Disable RLS for testing
--- WARNING: This removes all security restrictions on the images table
--- Only use this for testing purposes
+// ---- File: .dockerignore ----
 
--- Disable RLS on the images table
-ALTER TABLE public.images DISABLE ROW LEVEL SECURITY;
+# Block problematic platform-specific files
+node_modules
+.next
+package-lock.json
 
--- To re-enable RLS later, use:
--- ALTER TABLE public.images ENABLE ROW LEVEL SECURITY;
+# Block development/git files  
+.git
+.gitignore
+.env.local
+.env
+
+# Block runtime data (will be volume-mounted)
+data
+public/images
+
+# Block logs and OS files
+*.log
+.DS_Store
+Thumbs.db
+
+# Block documentation
+README.md
+
+# DO NOT block src/ - we need the source code!
 
 // ---- File: skeleton.tsx ----
 
