@@ -1,5 +1,5 @@
 // src/services/imageService.ts
-import { addImage, getImages, rateImage, type ImageEntry, type NewImagePayload } from '@/lib/database';
+import { addImage, getImages, rateImage, type ImageEntry, type NewImagePayload, type ImageSortCriteria, type ImageFilterCriteria } from '@/lib/database';
 
 // För kompatibilitet med din befintliga kod
 export { type ImageEntry };
@@ -18,8 +18,12 @@ export const addImageToDatabase = async (imageData: NewImagePayload): Promise<st
   return imageId;
 };
 
-export const getAllImages = async (): Promise<ImageEntry[]> => { // Make async and return Promise
-  return await getImages(); // Await the async call
+export const getAllImages = async (
+  currentUserId?: string,
+  sortBy: ImageSortCriteria = 'created_at_desc',
+  filterBy: ImageFilterCriteria = 'all'
+): Promise<ImageEntry[]> => {
+  return await getImages(currentUserId, sortBy, filterBy);
 };
 
 export const submitRating = async (imageId: string, userId: string, ratingType: 'thumbs_up' | 'thumbs_down'): Promise<void> => {
@@ -50,7 +54,9 @@ export const getImagesRealtime = (callback: (images: ImageEntry[]) => void) => {
 };
 
 const notifyListeners = async () => { // Make async
-  const images = await getAllImages(); // Await the async call
+  // Notify with default sort order and no specific user/filter for general updates
+  // If specific user context is needed for notifications, this might need adjustment
+  const images = await getAllImages(undefined, 'created_at_desc', 'all');
   eventListeners.forEach(callback => {
     try {
       callback(images);

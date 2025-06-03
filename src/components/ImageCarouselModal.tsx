@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Image from 'next/image';
 import { Dialog, DialogContent, DialogClose, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
@@ -21,7 +21,13 @@ interface ImageCarouselModalProps {
 export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: ImageCarouselModalProps) {
   const [currentIndex, setCurrentIndex] = useState(startIndex);
   const { toast } = useToast();
-  const { currentUser } = useAuth(); // ✅ Lägg till för att få användare
+  const { currentUser } = useAuth();
+
+  // State for optimistic updates within the modal
+  const [currentOptimisticImage, setCurrentOptimisticImage] = useState<ImageEntry | null>(null);
+  const [currentUserVote, setCurrentUserVote] = useState<'thumbs_up' | 'thumbs_down' | null>(null);
+  const [isRatingInProgress, setIsRatingInProgress] = useState(false);
+  const ratingApiCallInProgressRef = useRef(false);
 
   useEffect(() => {
     if (isOpen) {
@@ -29,49 +35,120 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
     }
   }, [startIndex, isOpen]);
 
+  // Effect to update currentOptimisticImage when images or currentIndex change
   useEffect(() => {
-    if (isOpen) {
-      if (images.length === 0) {
-        onClose(); 
-      } else if (currentIndex >= images.length) {
-        setCurrentIndex(Math.max(0, images.length - 1)); 
+    if (isOpen && images.length > 0 && currentIndex < images.length) {
+      const activeImage = images[currentIndex];
+
+      // If an optimistic update is in progress for the *current* image ID,
+      // do NOT overwrite currentOptimisticImage from the `images` prop.
+      if (isRatingInProgress && currentOptimisticImage && activeImage.id === currentOptimisticImage.id) {
+        return; // Protect the optimistic state
+      }
+
+      setCurrentOptimisticImage({ ...activeImage });
+      // Only reset currentUserVote if the image ID actually changes
+      if (!currentOptimisticImage || activeImage.id !== currentOptimisticImage.id) {
+        setCurrentUserVote(null);
+      }
+    } else if (isOpen && images.length === 0) {
+      onClose();
+    } else if (isOpen && currentIndex >= images.length && images.length > 0) {
+      // Handle case where currentIndex might be out of bounds after images array changes
+      const newIndex = Math.max(0, images.length - 1);
+      setCurrentIndex(newIndex); // This will trigger a re-run if index changed
+      // If index was out of bounds, the re-run will handle setting the image.
+      // We need to be careful not to set state that causes an immediate loop if newIndex === currentIndex.
+      // The guard for isRatingInProgress should also apply here if we were to set image directly.
+      // However, by only calling setCurrentIndex, we defer to the next effect run.
+      // For safety, if we were to set image here, it would need the same protection:
+      if (!(isRatingInProgress && currentOptimisticImage && images[newIndex] && images[newIndex].id === currentOptimisticImage.id)) {
+         // setCurrentOptimisticImage({ ...images[newIndex] }); // This line is implicitly handled by re-run due to setCurrentIndex
+         // setCurrentUserVote(null); // Also handled by re-run
+      }
+      // The main logic for setting currentOptimisticImage is at the top of this effect,
+      // so if setCurrentIndex causes a change, that logic will correctly apply.
+    } else if (!isOpen) {
+      setCurrentOptimisticImage(null); // Clear when modal is closed
+      setCurrentUserVote(null);
+    }
+  }, [images, currentIndex, isOpen, onClose, isRatingInProgress, currentOptimisticImage]);
+
+
+  const handleRate = async (ratingType: "thumbs_up" | "thumbs_down") => {
+    if (ratingApiCallInProgressRef.current || !currentOptimisticImage || !currentUser) return;
+
+    ratingApiCallInProgressRef.current = true;
+    setIsRatingInProgress(true);
+
+    const imageBeforeOptimisticUpdate = { ...currentOptimisticImage };
+    const voteBeforeOptimisticUpdate = currentUserVote;
+
+    let newThumbsUp = currentOptimisticImage.thumbs_up;
+    let newThumbsDown = currentOptimisticImage.thumbs_down;
+    let newOptimisticVoteState: 'thumbs_up' | 'thumbs_down' | null = currentUserVote;
+    let hasVoteChanged = false;
+
+    if (ratingType === "thumbs_up") {
+      if (currentUserVote !== "thumbs_up") { // If not already thumbs_up, or changing vote
+        newOptimisticVoteState = "thumbs_up";
+        newThumbsUp = 1;
+        newThumbsDown = 0; // Set other to 0
+        hasVoteChanged = true;
+      }
+    } else { // ratingType === "thumbs_down"
+      if (currentUserVote !== "thumbs_down") { // If not already thumbs_down, or changing vote
+        newOptimisticVoteState = "thumbs_down";
+        newThumbsDown = 1;
+        newThumbsUp = 0; // Set other to 0
+        hasVoteChanged = true;
       }
     }
-  }, [images, currentIndex, isOpen, onClose]);
 
-  // ✅ Uppdaterad handleRate-funktion för att använda nya API:et
-  const handleRate = async (ratingType: "thumbs_up" | "thumbs_down") => {
-    if (!currentImage || !currentUser) return;
-    
+    if (!hasVoteChanged) {
+      ratingApiCallInProgressRef.current = false;
+      setIsRatingInProgress(false);
+      return;
+    }
+
+    const updatedOptimisticImage = {
+      ...currentOptimisticImage,
+      thumbs_up: newThumbsUp,
+      thumbs_down: newThumbsDown,
+    };
+
+    setCurrentOptimisticImage(updatedOptimisticImage);
+    setCurrentUserVote(newOptimisticVoteState);
+    // Note: No onImageUpdate prop like in ImageCard, changes are local to modal. Parent polls.
+
     try {
-      const response = await fetch(`/api/images/${currentImage.id}/rate`, {
+      const response = await fetch(`/api/images/${currentOptimisticImage.id}/rate`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          userId: currentUser,
-          ratingType,
-        }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ratingType }), // Align with ImageCard, userId from session
       });
 
       if (!response.ok) {
-        throw new Error('Failed to rate image');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to rate image');
       }
 
       toast({
         title: "Rating Submitted",
-        description: `You rated this image ${ratingType === "thumbs_up" ? "thumbs up" : "thumbs down"}.`,
+        description: `You rated ${ratingType === "thumbs_up" ? "thumbs up" : "thumbs down"}.`,
       });
-      
-      // Polling kommer att uppdatera bilderna automatiskt
+      // Polling will eventually fetch the true state.
     } catch (error) {
-      console.error('Rating error:', error);
+      setCurrentOptimisticImage(imageBeforeOptimisticUpdate); // Revert
+      setCurrentUserVote(voteBeforeOptimisticUpdate);      // Revert
       toast({
         title: "Rating Error",
-        description: "Could not submit your rating. Please try again.",
+        description: (error as Error).message || "Could not submit your rating.",
         variant: "destructive",
       });
+    } finally {
+      ratingApiCallInProgressRef.current = false;
+      setIsRatingInProgress(false);
     }
   };
 
@@ -105,13 +182,28 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
     return null;
   }
 
-  const currentImage = images[currentIndex];
-  if (!currentImage) {
-    onClose();
-    return null;
+  const displayImage = currentOptimisticImage;
+
+  if (!isOpen) {
+    return null; // Modal not open, render nothing.
   }
 
-  const createdAtDate = currentImage.created_at ? new Date(currentImage.created_at) : null;
+  if (!displayImage) {
+    // Modal is open, but currentOptimisticImage is not yet set.
+    // Render the Dialog shell, optionally with a loader.
+    // The useEffects should quickly set currentOptimisticImage or close the modal if images are empty.
+    return (
+      <Dialog open={isOpen} onOpenChange={(open) => !open && onClose()}>
+        <DialogContent className="max-w-3xl w-[90vw] h-[90vh] p-0 flex items-center justify-center bg-card overflow-hidden">
+          {/* Optional: Add a loading spinner here */}
+          {/* <p>Loading image...</p> */}
+        </DialogContent>
+      </Dialog>
+    );
+  }
+
+  // If we reach here, isOpen is true AND displayImage is not null.
+  const createdAtDate = displayImage.created_at ? new Date(displayImage.created_at) : null;
   const timeAgo = createdAtDate ? formatDistanceToNow(createdAtDate, { addSuffix: true }) : 'just now';
 
   return (
@@ -119,19 +211,15 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
       <DialogContent className="max-w-3xl w-[90vw] h-[90vh] p-0 flex flex-col bg-card overflow-hidden">
         <DialogHeader>
           <DialogTitle className="sr-only">
-            Image Details: {currentImage.enhanced_prompt ? `${currentImage.enhanced_prompt.substring(0,70)}${currentImage.enhanced_prompt.length > 70 ? "..." : ""}` : "Generated Image"}
+            Image Details: {displayImage.enhanced_prompt ? `${displayImage.enhanced_prompt.substring(0,70)}${displayImage.enhanced_prompt.length > 70 ? "..." : ""}` : "Generated Image"}
           </DialogTitle>
         </DialogHeader>
         
-        {/* The DialogContent component from ui/dialog already includes a close button */}
-        {/* Removed redundant explicit close button to fix double X icon issue */}
-
         <div className="relative flex-grow flex items-center justify-center bg-muted/50 p-4">
-          {/* ✅ Använd image_url istället för image_data_uri */}
-          {currentImage.image_url && (
+          {displayImage.image_url && (
             <Image
-              src={currentImage.image_url}
-              alt={currentImage.enhanced_prompt || "Generated image"}
+              src={displayImage.image_url}
+              alt={displayImage.enhanced_prompt || "Generated image"}
               fill
               style={{ objectFit: 'contain' }}
               data-ai-hint="detailed view"
@@ -165,7 +253,7 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
         <div className="p-4 border-t bg-card space-y-3">
           <div className="flex items-center space-x-2 text-sm text-muted-foreground">
             <UserCircle className="h-5 w-5" />
-            <span>{currentImage.user_name || currentImage.user_id}</span>
+            <span>{displayImage.user_name || displayImage.user_id}</span>
             <span className="text-xs">&bull; {timeAgo}</span>
             {images.length > 1 && (
                 <span className="ml-auto text-xs">({currentIndex + 1} of {images.length})</span>
@@ -174,7 +262,7 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
           <div>
             <h3 className="font-semibold text-sm">Enhanced Prompt:</h3>
             <p className="text-xs text-muted-foreground max-h-20 overflow-y-auto">
-              {currentImage.enhanced_prompt}
+              {displayImage.enhanced_prompt}
             </p>
           </div>
           <div className="flex justify-end items-center space-x-2">
@@ -183,18 +271,26 @@ export function ImageCarouselModal({ images, startIndex, isOpen, onClose }: Imag
               size="sm"
               onClick={() => handleRate("thumbs_up")}
               aria-label="Thumbs Up"
-              className="text-green-600 hover:bg-green-100 hover:text-green-700 px-2"
+              disabled={isRatingInProgress}
+              className={cn(
+                "px-2 text-green-600 hover:bg-green-100 hover:text-green-700",
+                currentUserVote === 'thumbs_up' && 'bg-green-100 text-green-700'
+              )}
             >
-              <ThumbsUp className="h-5 w-5 mr-1" /> {currentImage.thumbs_up}
+              <ThumbsUp className={cn("h-5 w-5 mr-1", currentUserVote === 'thumbs_up' && 'fill-current')} /> {displayImage.thumbs_up}
             </Button>
             <Button
               variant="ghost"
               size="sm"
               onClick={() => handleRate("thumbs_down")}
               aria-label="Thumbs Down"
-              className="text-red-600 hover:bg-red-100 hover:text-red-700 px-2"
+              disabled={isRatingInProgress}
+              className={cn(
+                "px-2 text-red-600 hover:bg-red-100 hover:text-red-700",
+                currentUserVote === 'thumbs_down' && 'bg-red-100 text-red-700'
+              )}
             >
-              <ThumbsDown className="h-5 w-5 mr-1" /> {currentImage.thumbs_down}
+              <ThumbsDown className={cn("h-5 w-5 mr-1", currentUserVote === 'thumbs_down' && 'fill-current')} /> {displayImage.thumbs_down}
             </Button>
           </div>
         </div>

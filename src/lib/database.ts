@@ -1,7 +1,5 @@
 // src/lib/database.ts
 import { Pool } from 'pg';
-import path from 'path';
-import fs from 'fs';
 import crypto from 'crypto';
 
 // Ensure DATABASE_URL is set, otherwise throw an error or provide a default
@@ -67,7 +65,7 @@ const initializeSchema = async () => {
         user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
         original_prompt TEXT NOT NULL,
         enhanced_prompt TEXT NOT NULL,
-        image_filename TEXT NOT NULL,
+        image_base64_data TEXT, -- Store base64 encoded image data
         thumbs_up INTEGER DEFAULT 0,
         thumbs_down INTEGER DEFAULT 0,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
@@ -80,6 +78,13 @@ const initializeSchema = async () => {
         rating_type TEXT NOT NULL CHECK (rating_type IN ('thumbs_up', 'thumbs_down')),
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         UNIQUE(image_id, user_id)
+      );
+
+      CREATE TABLE IF NOT EXISTS user_image_favorites (
+        user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+        image_id TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        PRIMARY KEY (user_id, image_id)
       );
     `);
     console.log('Database schema (including NextAuth tables) initialized successfully.');
@@ -106,12 +111,16 @@ export interface ImageEntry {
   user_name?: string; // Added for displaying user's name
   original_prompt: string;
   enhanced_prompt: string;
-  image_filename: string;
-  image_url?: string; // For compatibility with your existing components
+  image_base64_data?: string; // Added to hold the base64 data
+  image_url?: string; // Will be a data URI
   thumbs_up: number;
   thumbs_down: number;
   created_at: string;
+  is_favorited?: boolean; // To indicate if the current user has favorited this image
 }
+
+export type ImageSortCriteria = 'created_at_desc' | 'thumbs_up_desc';
+export type ImageFilterCriteria = 'all' | 'favorites';
 
 export interface NewImagePayload {
   user_id: string;
@@ -120,28 +129,15 @@ export interface NewImagePayload {
   image_data: Buffer;
 }
 
-// Save image to file system and return filename
-function saveImageFile(imageBuffer: Buffer, imageId: string): string {
-  const imagesDir = path.join(process.cwd(), 'public', 'images');
-  if (!fs.existsSync(imagesDir)) {
-    fs.mkdirSync(imagesDir, { recursive: true });
-  }
-  
-  const filename = `${imageId}.png`;
-  const filepath = path.join(imagesDir, filename);
-  fs.writeFileSync(filepath, imageBuffer);
-  return filename;
-}
-
 export const addImage = async (imageData: NewImagePayload): Promise<string> => {
   const id = crypto.randomUUID();
-  const filename = saveImageFile(imageData.image_data, id);
+  const imageBase64 = imageData.image_data.toString('base64');
   
   const queryText = `
-    INSERT INTO images (id, user_id, original_prompt, enhanced_prompt, image_filename)
+    INSERT INTO images (id, user_id, original_prompt, enhanced_prompt, image_base64_data)
     VALUES ($1, $2, $3, $4, $5)
   `;
-  const values = [id, imageData.user_id, imageData.original_prompt, imageData.enhanced_prompt, filename];
+  const values = [id, imageData.user_id, imageData.original_prompt, imageData.enhanced_prompt, imageBase64];
   
   try {
     await pool.query(queryText, values);
@@ -152,36 +148,67 @@ export const addImage = async (imageData: NewImagePayload): Promise<string> => {
   }
 };
 
-export const getImages = async (): Promise<ImageEntry[]> => {
-  const queryText = `
-    SELECT
-      i.id,
-      i.user_id,
-      u.name AS user_name, -- Select the user's name
-      i.original_prompt,
-      i.enhanced_prompt,
-      i.image_filename,
-      i.thumbs_up,
-      i.thumbs_down,
-      i.created_at::TEXT AS created_at
-    FROM images i
-    LEFT JOIN users u ON i.user_id = u.id -- Join with users table
-    ORDER BY i.created_at DESC
-  `;
-  // Note: Casting created_at to TEXT. Adjust if specific date formatting is needed client-side.
-  // Alternatively, handle Date objects directly in your application.
+export const getImages = async (
+  currentUserId?: string, // Optional: to check if the current user has favorited images
+  sortBy: ImageSortCriteria = 'created_at_desc',
+  filterBy: ImageFilterCriteria = 'all'
+): Promise<ImageEntry[]> => {
+  let orderByClause = 'ORDER BY i.created_at DESC';
+  if (sortBy === 'thumbs_up_desc') {
+    orderByClause = 'ORDER BY i.thumbs_up DESC, i.created_at DESC';
+  }
+
+  const queryParams: string[] = [];
+  
+  const selectBase = [
+    'i.id',
+    'i.user_id',
+    'u.name AS user_name',
+    'i.original_prompt',
+    'i.enhanced_prompt',
+    'i.image_base64_data',
+    'i.thumbs_up',
+    'i.thumbs_down',
+    'i.created_at::TEXT AS created_at'
+  ];
+  const joinClauses = ['LEFT JOIN users u ON i.user_id = u.id'];
+  const whereConditions: string[] = [];
+
+  if (currentUserId) {
+    // currentUserId will always be $1 if present.
+    queryParams.push(currentUserId);
+    selectBase.push(`(EXISTS(SELECT 1 FROM user_image_favorites WHERE user_id = $1 AND image_id = i.id)) AS is_favorited`);
+
+    if (filterBy === 'favorites') {
+      joinClauses.push('INNER JOIN user_image_favorites f ON i.id = f.image_id');
+      whereConditions.push(`f.user_id = $1`);
+    }
+  }
+  // API route ensures filterBy !== 'favorites' if currentUserId is null.
+
+  const selectClause = `SELECT ${selectBase.join(', ')}`;
+  const fromClause = 'FROM images i';
+  const joins = joinClauses.join(' ');
+  const wheres = whereConditions.length > 0 ? `WHERE ${whereConditions.join(' AND ')}` : '';
+
+  const queryText = `${selectClause} ${fromClause} ${joins} ${wheres} ${orderByClause}`;
   
   try {
-    const result = await pool.query(queryText);
+    const result = await pool.query(queryText, queryParams);
     const images = result.rows as ImageEntry[];
     
-    // Add image_url for compatibility
-    return images.map(image => ({
-      ...image,
-      image_url: `/images/${image.image_filename}`
-    }));
+    return images.map(image => {
+      const { image_base64_data, ...rest } = image;
+      return {
+        ...rest,
+        image_url: image_base64_data ? `data:image/png;base64,${image_base64_data}` : undefined,
+        is_favorited: image.is_favorited === undefined ? false : image.is_favorited // Ensure boolean
+      };
+    });
   } catch (err) {
     console.error('Error fetching images from database:', err);
+    console.error('Query:', queryText); // Log the query for debugging
+    console.error('Params:', queryParams); // Log the params for debugging
     throw err;
   }
 };
@@ -222,8 +249,63 @@ export const rateImage = async (imageId: string, userId: string, ratingType: 'th
   }
 };
 
+export const deleteImage = async (imageId: string, userId: string): Promise<boolean> => {
+  const client = await pool.connect();
+  try {
+    // First, verify the user owns the image
+    const verifyQuery = 'SELECT user_id FROM images WHERE id = $1';
+    const verifyResult = await client.query(verifyQuery, [imageId]);
+
+    if (verifyResult.rows.length === 0) {
+      console.log(`Image with id ${imageId} not found.`);
+      return false; // Image not found
+    }
+
+    const imageOwnerId = verifyResult.rows[0].user_id;
+    if (imageOwnerId !== userId) {
+      console.warn(`User ${userId} attempted to delete image ${imageId} owned by ${imageOwnerId}.`);
+      return false; // User does not own the image
+    }
+
+    // If verification passes, delete the image
+    // Associated ratings will be deleted due to ON DELETE CASCADE
+    const deleteQuery = 'DELETE FROM images WHERE id = $1 AND user_id = $2';
+    const result = await client.query(deleteQuery, [imageId, userId]);
+    return result.rowCount !== null && result.rowCount > 0;
+  } catch (err) {
+    console.error(`Error deleting image ${imageId} for user ${userId}:`, err);
+    throw err; // Re-throw the error to be handled by the caller
+  } finally {
+    client.release();
+  }
+};
+
 // Export the pool for potential direct use elsewhere, though using the functions is preferred.
 export { pool };
 // Default export can be the pool or undefined, depending on preference.
 // For consistency with the previous 'db' export, let's export the pool.
 export default pool;
+
+export const addFavorite = async (userId: string, imageId: string): Promise<void> => {
+  const queryText = `
+    INSERT INTO user_image_favorites (user_id, image_id)
+    VALUES ($1, $2)
+    ON CONFLICT (user_id, image_id) DO NOTHING;
+  `;
+  try {
+    await pool.query(queryText, [userId, imageId]);
+  } catch (err) {
+    console.error(`Error adding favorite for user ${userId}, image ${imageId}:`, err);
+    throw err;
+  }
+};
+
+export const removeFavorite = async (userId: string, imageId: string): Promise<void> => {
+  const queryText = 'DELETE FROM user_image_favorites WHERE user_id = $1 AND image_id = $2';
+  try {
+    await pool.query(queryText, [userId, imageId]);
+  } catch (err) {
+    console.error(`Error removing favorite for user ${userId}, image ${imageId}:`, err);
+    throw err;
+  }
+};

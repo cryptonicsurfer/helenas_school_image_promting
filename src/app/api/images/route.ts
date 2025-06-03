@@ -3,11 +3,31 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getAllImages, addImageToDatabase } from '@/services/imageService';
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from '@/app/api/auth/[...nextauth]/route'; // Adjusted path
+import { ImageSortCriteria, ImageFilterCriteria } from '@/lib/database'; // Import criteria types
 
-export async function GET() {
-  // Consider if this route should also be protected or if public images are intended
+export async function GET(request: NextRequest) {
+  const session = await getServerSession(authOptions);
+  const currentUserId = session?.user?.id;
+
   try {
-    const images = await getAllImages();
+    const { searchParams } = new URL(request.url);
+    const sortBy = searchParams.get('sortBy') as ImageSortCriteria | null;
+    const filterBy = searchParams.get('filterBy') as ImageFilterCriteria | null;
+
+    // Validate sortBy parameter
+    const validSortCriteria: ImageSortCriteria[] = ['created_at_desc', 'thumbs_up_desc'];
+    const sortCriteria = sortBy && validSortCriteria.includes(sortBy) ? sortBy : 'created_at_desc';
+
+    // Validate filterBy parameter
+    const validFilterCriteria: ImageFilterCriteria[] = ['all', 'favorites'];
+    const filterCriteria = filterBy && validFilterCriteria.includes(filterBy) ? filterBy : 'all';
+    
+    // If filtering by favorites, user must be logged in
+    if (filterCriteria === 'favorites' && !currentUserId) {
+      return NextResponse.json({ error: 'Unauthorized to filter by favorites' }, { status: 401 });
+    }
+
+    const images = await getAllImages(currentUserId, sortCriteria, filterCriteria);
     return NextResponse.json(images);
   } catch (error) {
     console.error('Error fetching images:', error);
